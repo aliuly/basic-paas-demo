@@ -185,7 +185,7 @@ module "dds" {
 # ---------------------------------------------------------------------------
 
 resource "local_file" "asm_bootstrap" {
-  filename        = "${path.module}/exports/asm-bootstrap.auto.tfvars"
+  filename        = "${path.module}/exports/asm-bootstrap.tfvars"
   file_permission = "0600"
 
   content = templatefile("${path.module}/asm-bootstrap.tfvars.tpl", {
