@@ -138,3 +138,19 @@ output "lts_stream_ids" {
   description = "Map of all LTS stream IDs (kubernetes, node, audit)"
   value       = module.lts.stream_ids
 }
+
+# ---------------------------------------------------------------------------
+# CCE credentials — may be consumed by 3-workloads if using Helm/K8s providers
+# ---------------------------------------------------------------------------
+
+output "cce_cluster_ca" {
+  description = "Base64-encoded cluster CA certificate"
+  value       = module.cce.cluster_ca
+  sensitive   = true
+}
+
+output "cce_cluster_token" {
+  description = "Base64-encoded client certificate for provider auth"
+  value       = module.cce.cluster_token
+  sensitive   = true
+}

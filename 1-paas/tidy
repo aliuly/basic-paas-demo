@@ -8,5 +8,6 @@ $tf destroy \
     -target=module.vpn \
     -target=module.bastion \
     -target=module.cce \
-    -target=module.dds
+    -target=module.dds \
+    -target=module.lts
 

@@ -33,6 +33,12 @@ output "cluster_token" {
   sensitive   = true
 }
 
+output "cluster_key" {
+  description = "Base64-encoded client key for kubectl / provider auth"
+  value       = opentelekomcloud_cce_cluster_v3.this.certificate_users[0].client_key_data
+  sensitive   = true
+}
+
 output "elb_vip" {
   description = "Private VIP address of the ingress ELB"
   value       = opentelekomcloud_lb_loadbalancer_v2.ingress.vip_address

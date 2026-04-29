@@ -205,3 +205,40 @@ resource "local_file" "asm_bootstrap" {
     high_availability  = module.cce.high_availability
   })
 }
+
+# ---------------------------------------------------------------------------
+# kubeconfig — written to exports/ for use by 2-asm and 3-workloads.
+#
+# Route traffic through the bastion SOCKS5 proxy:
+#   ssh -D 1080 -N user@<bastion-ext-ip>
+#   KUBECONFIG=exports/kubeconfig HTTPS_PROXY=socks5://localhost:1080 kubectl get nodes
+# ---------------------------------------------------------------------------
+
+resource "local_file" "kubeconfig" {
+  filename        = "${path.module}/exports/kubeconfig"
+  file_permission = "0600"
+
+  content = templatefile("${path.module}/kubeconfig.tpl", {
+    cluster_name     = module.cce.cluster_name
+    cluster_endpoint = module.cce.cluster_endpoint
+    cluster_ca       = module.cce.cluster_ca
+    cluster_token    = module.cce.cluster_token
+    cluster_key      = module.cce.cluster_key
+  })
+}
+
+# ---------------------------------------------------------------------------
+# istio.env — sourced by 2-asm scripts to pick up HA flag, version, and
+# kubeconfig path without requiring manual environment setup.
+# ---------------------------------------------------------------------------
+
+resource "local_file" "istio_env" {
+  filename        = "${path.module}/exports/istio.env"
+  file_permission = "0640"
+
+  content = templatefile("${path.module}/istio.env.tpl", {
+    high_availability = module.cce.high_availability
+    istio_version     = "1.21.2"
+    kubeconfig_path   = abspath("${path.module}/exports/kubeconfig")
+  })
+}

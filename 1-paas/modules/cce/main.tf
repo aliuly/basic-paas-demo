@@ -5,7 +5,7 @@
 #   false → cce.s1.small  master, single AZ, var.node_count workers (default 2)
 #   true  → cce.s2.small  master, 3 AZs,     3 workers (one per AZ)
 #
-# Worker nodes:  s9.large.2 flavour, 32 GB system volume, 8 GB data volume
+# Worker nodes:  s9.xlarge.4 flavour, 40 GB system volume, 100 GB data volume
 # Ingress:       ELB (shared, internal) with HTTPS using caller-supplied certs
 # Admin access:  via bastion / VPN only — no public inbound on cluster/nodes
 # ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ resource "opentelekomcloud_cce_node_pool_v3" "workers" {
   cluster_id         = opentelekomcloud_cce_cluster_v3.this.id
   name               = "workers"
   os                 = "EulerOS 2.9"
-  flavor             = "s9.large.2"
+  flavor             = "s9.xlarge.4"
   initial_node_count = local.effective_node_count
   key_pair           = var.node_keypair
 
