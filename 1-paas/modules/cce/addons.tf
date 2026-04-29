@@ -45,18 +45,12 @@ resource "opentelekomcloud_cce_addon_v3" "metrics_server" {
 
 # ---------------------------------------------------------------------------
 # 3. Cloud Native Cluster Monitoring (kube-prometheus-stack + Grafana)
-#
-# TODO: template_name needs to be confirmed — the OTC API returned items:null
-# for "cloud-native-cluster-monitoring". Candidates from OTC docs:
-#   "cce-cluster-monitoring", "cloud-native-cluster-monitoring",
-#   "kube-prometheus-stack"
-# Template version also needs to be confirmed from the same API call.
 # ---------------------------------------------------------------------------
 
 resource "opentelekomcloud_cce_addon_v3" "monitoring" {
   cluster_id       = local.cluster_id
   template_name    = "cie-collector"
-  template_version = "3.12.2"							# TODO: unconfirmed
+  template_version = "3.12.2"
 
   values {
     basic = {

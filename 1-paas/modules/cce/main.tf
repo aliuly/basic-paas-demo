@@ -259,6 +259,14 @@ resource "opentelekomcloud_dns_recordset_v2" "cce_api" {
   tags    = var.tags
 }
 
+resource "opentelekomcloud_dns_recordset_v2" "grafana_cname" {
+  zone_id = data.opentelekomcloud_dns_zone_v2.intdns.id
+  name    = "grafana-mern.${var.dns_zone}."
+  type    = "CNAME"
+  records = ["${var.cluster_name}.${var.dns_zone}."]
+  tags    = var.tags
+}
+
 # ---------------------------------------------------------------------------
 # Node IDs — resolved after the node pool is ready.
 # Used by the ASM module (separate apply) to know which nodes to install on.
