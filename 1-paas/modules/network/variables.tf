@@ -31,6 +31,40 @@ variable "subnet_gateway_ip" {
   default     = "10.0.1.1"
 }
 
+variable "bastion_subnet_name" {
+  description = "Bastion subnet name"
+  type        = string
+}
+
+variable "bastion_subnet_cidr" {
+  description = "Bastion subnet CIDR block"
+  type        = string
+  default     = "10.0.2.0/24"
+}
+
+variable "bastion_subnet_gateway_ip" {
+  description = "Bastion subnet gateway IP"
+  type        = string
+  default     = "10.0.2.1"
+}
+
+variable "vpn_subnet_name" {
+  description = "VPN gateway subnet name"
+  type        = string
+}
+
+variable "vpn_subnet_cidr" {
+  description = "VPN gateway subnet CIDR block"
+  type        = string
+  default     = "10.0.3.0/24"
+}
+
+variable "vpn_subnet_gateway_ip" {
+  description = "VPN gateway subnet gateway IP"
+  type        = string
+  default     = "10.0.3.1"
+}
+
 variable "tags" {
   description = "Resource tags"
   type        = map(string)
@@ -61,4 +95,21 @@ variable "my_ssh_key" {
   description = "SSH public key text"
   type = string
   sensitive = true
+}
+
+variable "datastore_subnet_name" {
+  description = "Datastore subnet name"
+  type        = string
+}
+
+variable "datastore_subnet_cidr" {
+  description = "Datastore subnet CIDR block"
+  type        = string
+  default     = "10.0.4.0/24"
+}
+
+variable "datastore_subnet_gateway_ip" {
+  description = "Datastore subnet gateway IP"
+  type        = string
+  default     = "10.0.4.1"
 }

@@ -47,12 +47,31 @@ locals {
 #   CCE node security group to the DDS security group.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Security group — allow inbound on DDS port (8635) from CCE node SG only
+# ---------------------------------------------------------------------------
+
+resource "opentelekomcloud_networking_secgroup_v2" "this" {
+  name        = "sg-dds-${var.name}-${var.environment}"
+  description = "DDS instance — inbound 8635 from CCE nodes only"
+}
+
+resource "opentelekomcloud_networking_secgroup_rule_v2" "from_cce_nodes" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 8635
+  port_range_max    = 8635
+  remote_group_id   = var.cce_node_sg_id
+  security_group_id = opentelekomcloud_networking_secgroup_v2.this.id
+}
+
 resource "opentelekomcloud_dds_instance_v3" "this" {
   name              = local.instance_name
   availability_zone = var.availability_zone
   vpc_id            = var.vpc_id
   subnet_id         = var.subnet_id
-  security_group_id = var.security_group_id
+  security_group_id = opentelekomcloud_networking_secgroup_v2.this.id
   password          = var.password
   mode              = local.mode
   ssl               = var.ssl

@@ -117,3 +117,8 @@ variable "lts_audit_stream_id" {
   description = "LTS stream ID for Kubernetes audit logs — passed from the lts module, consumed by the log-agent add-on"
   type        = string
 }
+
+variable "bastion_sg_id" {
+  description = "Bastion security group ID — permitted to reach the CCE API server on port 5443"
+  type        = string
+}

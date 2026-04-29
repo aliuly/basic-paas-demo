@@ -70,6 +70,17 @@ resource "opentelekomcloud_networking_secgroup_rule_v2" "node_from_elb" {
   security_group_id = opentelekomcloud_networking_secgroup_v2.cce_node.id
 }
 
+# Bastion host may reach the CCE API server (port 5443) for kubectl access
+resource "opentelekomcloud_networking_secgroup_rule_v2" "cce_api_from_bastion" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 5443
+  port_range_max    = 5443
+  remote_group_id   = var.bastion_sg_id
+  security_group_id = opentelekomcloud_networking_secgroup_v2.cce_node.id
+}
+
 # ---------------------------------------------------------------------------
 # Security group for the ELB VIP
 # HTTPS/443 from the VPC (includes VPN-tunnelled clients); no public internet
@@ -226,6 +237,25 @@ resource "opentelekomcloud_dns_recordset_v2" "elb_vip" {
   name    = "${var.cluster_name}.${var.dns_zone}."
   type    = "A"
   records = [opentelekomcloud_lb_loadbalancer_v2.ingress.vip_address]
+  tags    = var.tags
+}
+
+# ---------------------------------------------------------------------------
+# CCE API server — private DNS A record
+#
+# cluster_endpoint is a URL (https://10.x.x.x:5443) — extract the bare IP
+# so it can be registered as an A record for use in kubeconfig.
+# ---------------------------------------------------------------------------
+
+locals {
+  api_ip = regex("https://([^:]+):", opentelekomcloud_cce_cluster_v3.this.certificate_clusters[0].server)[0]
+}
+
+resource "opentelekomcloud_dns_recordset_v2" "cce_api" {
+  zone_id = data.opentelekomcloud_dns_zone_v2.intdns.id
+  name    = "api-${local.cluster_full_name}.${var.dns_zone}."
+  type    = "A"
+  records = [local.api_ip]
   tags    = var.tags
 }
 

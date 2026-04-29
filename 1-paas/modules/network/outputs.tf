@@ -23,9 +23,24 @@ output "subnet_cidr" {
   value       = var.subnet_cidr
 }
 
-output "elb_sg_id" {
-  description = "ELB security group ID — rules added by the environment after WAF IPs are known"
-  value       = opentelekomcloud_networking_secgroup_v2.elb.id
+output "bastion_subnet_id" {
+  description = "Bastion subnet ID"
+  value       = opentelekomcloud_vpc_subnet_v1.bastion.id
+}
+
+output "bastion_subnet_cidr" {
+  description = "Bastion subnet CIDR block"
+  value       = var.bastion_subnet_cidr
+}
+
+output "vpn_subnet_id" {
+  description = "VPN gateway subnet ID"
+  value       = opentelekomcloud_vpc_subnet_v1.vpn.id
+}
+
+output "vpn_subnet_cidr" {
+  description = "VPN gateway subnet CIDR block"
+  value       = var.vpn_subnet_cidr
 }
 
 
@@ -61,4 +76,14 @@ output "network_id" {
 output "cce_vpc_id" {
   description = "VPC ID as seen by the CCE/networking API (opentelekomcloud_vpc_subnet_v1.vpc_id) — use this for opentelekomcloud_cce_cluster_v3.vpc_id"
   value       = opentelekomcloud_vpc_subnet_v1.this.vpc_id
+}
+
+output "datastore_subnet_id" {
+  description = "Datastore subnet ID"
+  value       = opentelekomcloud_vpc_subnet_v1.datastore.id
+}
+
+output "datastore_subnet_cidr" {
+  description = "Datastore subnet CIDR block"
+  value       = var.datastore_subnet_cidr
 }

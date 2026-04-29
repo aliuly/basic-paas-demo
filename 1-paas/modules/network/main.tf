@@ -25,14 +25,37 @@ resource "opentelekomcloud_vpc_subnet_v1" "this" {
 }
 
 # ---------------------------------------------------------------------------
-# ELB Security Group — created here with no rules so its ID is available
-# to modules/cce without depending on modules/waf.
-# The WAF IP inbound rules are added in the environment main.tf after
-# both modules/cce and modules/waf outputs are known.
+# Bastion Subnet — isolated subnet for the bastion host
 # ---------------------------------------------------------------------------
-resource "opentelekomcloud_networking_secgroup_v2" "elb" {
-  name        = "${var.vpc_name}-elb-sg"
-  description = "Internal ELB — inbound 443 from WAF IPs added post-provisioning"
-  region      = var.region
+resource "opentelekomcloud_vpc_subnet_v1" "bastion" {
+  name       = var.bastion_subnet_name
+  cidr       = var.bastion_subnet_cidr
+  gateway_ip = var.bastion_subnet_gateway_ip
+  vpc_id     = opentelekomcloud_vpc_v1.this.id
+  tags       = var.tags
 }
 
+
+
+
+# ---------------------------------------------------------------------------
+# VPN Subnet — isolated subnet for the VPN gateway
+# ---------------------------------------------------------------------------
+resource "opentelekomcloud_vpc_subnet_v1" "vpn" {
+  name       = var.vpn_subnet_name
+  cidr       = var.vpn_subnet_cidr
+  gateway_ip = var.vpn_subnet_gateway_ip
+  vpc_id     = opentelekomcloud_vpc_v1.this.id
+  tags       = var.tags
+}
+
+# ---------------------------------------------------------------------------
+# Datastore Subnet — isolated subnet for DDS (and future data services)
+# ---------------------------------------------------------------------------
+resource "opentelekomcloud_vpc_subnet_v1" "datastore" {
+  name       = var.datastore_subnet_name
+  cidr       = var.datastore_subnet_cidr
+  gateway_ip = var.datastore_subnet_gateway_ip
+  vpc_id     = opentelekomcloud_vpc_v1.this.id
+  tags       = var.tags
+}

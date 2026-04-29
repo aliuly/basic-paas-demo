@@ -52,9 +52,18 @@ output "cce_cluster_id" {
 }
 
 output "cce_cluster_endpoint" {
-  description = "Kubernetes API endpoint (private — access via bastion kubectl proxy)"
+  description = "CCE API server endpoint URL"
   value       = module.cce.cluster_endpoint
-  sensitive   = true
+}
+
+output "cce_api_ip" {
+  description = "CCE API server private IP address"
+  value       = module.cce.api_ip
+}
+
+output "cce_api_dns" {
+  description = "DNS name for the CCE API server — use this as the server in kubeconfig"
+  value       = module.cce.api_dns_name
 }
 
 output "cce_elb_vip" {

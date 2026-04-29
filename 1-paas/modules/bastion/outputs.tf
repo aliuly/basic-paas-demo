@@ -16,3 +16,8 @@ output "bastion_dns_name" {
 output "bastion_sg" {
   value = opentelekomcloud_networking_secgroup_v2.sg_bastion.name
 }
+
+output "bastion_sg_id" {
+  description = "Bastion security group ID — used by other modules for remote_group_id rules"
+  value       = opentelekomcloud_networking_secgroup_v2.sg_bastion.id
+}

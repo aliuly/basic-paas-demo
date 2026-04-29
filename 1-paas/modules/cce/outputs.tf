@@ -19,7 +19,6 @@ output "cluster_name" {
 output "cluster_endpoint" {
   description = "Kubernetes API server endpoint (private — access via bastion kubectl proxy)"
   value       = opentelekomcloud_cce_cluster_v3.this.certificate_clusters[0].server
-  sensitive   = true
 }
 
 output "cluster_ca" {
@@ -67,6 +66,16 @@ output "node_sg_id" {
 output "elb_dns_name" {
   description = "Internal DNS name resolving to the ELB VIP"
   value       = "${var.cluster_name}.${var.dns_zone}"
+}
+
+output "api_dns_name" {
+  description = "Internal DNS name resolving to the CCE API server"
+  value       = "api-${local.cluster_full_name}.${var.dns_zone}"
+}
+
+output "api_ip" {
+  description = "CCE API server private IP address"
+  value       = local.api_ip
 }
 
 output "node_pool_id" {

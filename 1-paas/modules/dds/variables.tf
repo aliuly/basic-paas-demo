@@ -95,8 +95,8 @@ variable "subnet_id" {
   type        = string
 }
 
-variable "security_group_id" {
-  description = "Security group ID to attach to the DDS instance"
+variable "cce_node_sg_id" {
+  description = "CCE node security group ID — permitted to reach DDS on port 8635"
   type        = string
 }
 

@@ -80,3 +80,8 @@ output "db_version" {
   description = "MongoDB-compatible version deployed"
   value       = var.db_version
 }
+
+output "sg_id" {
+  description = "DDS security group ID"
+  value       = opentelekomcloud_networking_secgroup_v2.this.id
+}

@@ -20,6 +20,19 @@ module "network" {
   subnet_name       = "mern-dev-subnet"
   subnet_cidr       = "${var.vpc_cidr_prefix}.1.0/24"
   subnet_gateway_ip = "${var.vpc_cidr_prefix}.1.1"
+
+  bastion_subnet_name       = "mern-dev-bastion-subnet"
+  bastion_subnet_cidr       = "${var.vpc_cidr_prefix}.2.0/24"
+  bastion_subnet_gateway_ip = "${var.vpc_cidr_prefix}.2.1"
+
+  vpn_subnet_name       = "mern-dev-vpn-subnet"
+  vpn_subnet_cidr       = "${var.vpc_cidr_prefix}.3.0/24"
+  vpn_subnet_gateway_ip = "${var.vpc_cidr_prefix}.3.1"
+
+  datastore_subnet_name       = "mern-dev-datastore-subnet"
+  datastore_subnet_cidr       = "${var.vpc_cidr_prefix}.4.0/24"
+  datastore_subnet_gateway_ip = "${var.vpc_cidr_prefix}.4.1"
+
   tags              = local.tags
 
   environment       = var.environment
@@ -36,7 +49,7 @@ module "bastion" {
   source = "./modules/bastion"
 
   region       = var.region
-  subnet_id    = module.network.subnet_id
+  subnet_id    = module.network.bastion_subnet_id
   natgw_id     = module.network.natgw_id
   local_users  = var.local_users
 
@@ -54,8 +67,8 @@ module "vpn" {
 
   region       = var.region
   vpc_id       = module.network.vpc_id
-  dmz_id       = module.network.subnet_id
-  subnets      = ["${var.vpc_cidr_prefix}.1.0/24"]
+  dmz_id       = module.network.vpn_subnet_id
+  subnets      = ["${var.vpc_cidr_prefix}.1.0/24", "${var.vpc_cidr_prefix}.2.0/24", "${var.vpc_cidr_prefix}.3.0/24"]
   peer_subnets = var.peer_subnets
 
   vpn_psk      = var.vpn_psk
@@ -115,6 +128,8 @@ module "cce" {
   dns_zone          = var.dns_zone
   k8s_version       = var.cce_k8s_version
 
+  bastion_sg_id     = module.bastion.bastion_sg_id
+
   # LTS — log-agent add-on destination
   lts_log_group_id         = module.lts.log_group_id
   lts_kubernetes_stream_id = module.lts.kubernetes_stream_id
@@ -130,21 +145,6 @@ module "cce" {
 # Note: OTC DDS uses port 8635, not MongoDB's default 27017.
 # ---------------------------------------------------------------------------
 
-resource "opentelekomcloud_networking_secgroup_v2" "dds" {
-  name        = "sg-dds-${var.vpc_name}-${var.environment}"
-  description = "DDS instance — inbound 8635 from CCE nodes only"
-}
-
-resource "opentelekomcloud_networking_secgroup_rule_v2" "dds_from_cce_nodes" {
-  direction         = "ingress"
-  ethertype         = "IPv4"
-  protocol          = "tcp"
-  port_range_min    = 8635
-  port_range_max    = 8635
-  remote_group_id   = module.cce.node_sg_id
-  security_group_id = opentelekomcloud_networking_secgroup_v2.dds.id
-}
-
 module "dds" {
   source = "./modules/dds"
 
@@ -158,8 +158,8 @@ module "dds" {
   password          = var.dds_password
 
   vpc_id            = module.network.vpc_id
-  subnet_id         = module.network.subnet_id
-  security_group_id = opentelekomcloud_networking_secgroup_v2.dds.id
+  subnet_id         = module.network.datastore_subnet_id
+  cce_node_sg_id    = module.cce.node_sg_id
   availability_zone = "${var.region}-01"
 
   maintain_begin = "02:00"
@@ -180,6 +180,10 @@ module "dds" {
 # Copy it to a new project or add it to this one with:
 #   tofu apply -var-file=asm-bootstrap.auto.tfvars
 #
+# NOTE: installation_nodes will be empty on the very first apply (before
+# nodes exist). Run a second tofu apply to regenerate with real node IDs.
+# ---------------------------------------------------------------------------
+
 # NOTE: installation_nodes will be empty on the very first apply (before
 # nodes exist). Run a second tofu apply to regenerate with real node IDs.
 # ---------------------------------------------------------------------------
