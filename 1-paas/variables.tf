@@ -157,3 +157,13 @@ variable "dds_backup_period" {
   type        = string
   default     = "1,2,3,4,5,6,7"
 }
+
+# ---------------------------------------------------------------------------
+# LTS — Log Tank Service
+# ---------------------------------------------------------------------------
+
+variable "lts_ttl_in_days" {
+  description = "Log retention period in days for the LTS log group (1–365)"
+  type        = number
+  default     = 7
+}

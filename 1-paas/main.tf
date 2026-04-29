@@ -69,6 +69,23 @@ module "vpn" {
 }
 
 # ---------------------------------------------------------------------------
+# LTS — Log Tank Service
+#
+# Creates the log group and streams consumed by the CCE log-agent add-on.
+# Must be applied before (or in the same apply as) the CCE module so the
+# stream IDs are available when the add-on is installed.
+# ---------------------------------------------------------------------------
+module "lts" {
+  source = "./modules/lts"
+
+  name        = var.vpc_name
+  environment = var.environment
+  ttl_in_days = var.lts_ttl_in_days
+
+  tags = local.tags
+}
+
+# ---------------------------------------------------------------------------
 # CCE — Kubernetes cluster with ELB HTTPS ingress
 #
 # Set cce_high_availability = true for a 3-master / 3-worker HA cluster.
@@ -98,7 +115,12 @@ module "cce" {
   dns_zone          = var.dns_zone
   k8s_version       = var.cce_k8s_version
 
-  tags              = local.tags
+  # LTS — log-agent add-on destination
+  lts_log_group_id         = module.lts.log_group_id
+  lts_kubernetes_stream_id = module.lts.kubernetes_stream_id
+  lts_audit_stream_id      = module.lts.audit_stream_id
+
+  tags = local.tags
 }
 
 # ---------------------------------------------------------------------------
@@ -163,7 +185,7 @@ module "dds" {
 # ---------------------------------------------------------------------------
 
 resource "local_file" "asm_bootstrap" {
-  filename        = "${path.module}/exports/asm-bootstrap.tfvars"
+  filename        = "${path.module}/exports/asm-bootstrap.auto.tfvars"
   file_permission = "0600"
 
   content = templatefile("${path.module}/asm-bootstrap.tfvars.tpl", {

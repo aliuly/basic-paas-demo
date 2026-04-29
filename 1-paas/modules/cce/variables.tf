@@ -100,3 +100,20 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# ---- LTS (log-agent add-on) ----
+
+variable "lts_log_group_id" {
+  description = "LTS log group ID — passed from the lts module, consumed by the log-agent add-on"
+  type        = string
+}
+
+variable "lts_kubernetes_stream_id" {
+  description = "LTS stream ID for container logs — passed from the lts module, consumed by the log-agent add-on"
+  type        = string
+}
+
+variable "lts_audit_stream_id" {
+  description = "LTS stream ID for Kubernetes audit logs — passed from the lts module, consumed by the log-agent add-on"
+  type        = string
+}

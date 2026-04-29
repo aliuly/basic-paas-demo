@@ -110,3 +110,22 @@ output "cce_worker_node_ids" {
   description = "Worker node IDs — populated after first apply. Used for ASM installation_nodes."
   value       = module.cce.worker_node_ids
 }
+
+# ---------------------------------------------------------------------------
+# LTS
+# ---------------------------------------------------------------------------
+
+output "lts_log_group_id" {
+  description = "LTS log group ID"
+  value       = module.lts.log_group_id
+}
+
+output "lts_log_group_name" {
+  description = "LTS log group name"
+  value       = module.lts.log_group_name
+}
+
+output "lts_stream_ids" {
+  description = "Map of all LTS stream IDs (kubernetes, node, audit)"
+  value       = module.lts.stream_ids
+}
