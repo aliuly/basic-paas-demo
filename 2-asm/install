@@ -1,0 +1,109 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# install — installs Istio onto the CCE cluster via Helm
+#
+# Requires a SOCKS5 proxy tunnel through the bastion to reach the CCE API.
+# See README.md for full usage instructions.
+#
+# Usage:
+#   HTTPS_PROXY=socks5://localhost:1080 ./install [options]
+#
+#   --version <v>   Override Istio version (default from istio.env)
+#   --ha            Override: force HA install (3 istiod replicas)
+#   --no-ha         Override: force non-HA install (1 istiod replica)
+# ---------------------------------------------------------------------------
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+. "${SCRIPT_DIR}/lib"
+
+load_env
+set_kubeconfig
+check_proxy
+
+HA_OVERRIDE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version) ISTIO_VERSION="$2"; shift 2 ;;
+    --version=*) ISTIO_VERSION="${1#--version=}"; shift ;;
+    --ha)    HA_OVERRIDE=true;  shift ;;
+    --no-ha) HA_OVERRIDE=false; shift ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ -n "$HA_OVERRIDE" ]; then
+  ISTIO_HA="$HA_OVERRIDE"
+fi
+
+if [ "$ISTIO_HA" = "true" ]; then
+  REPLICAS=3
+  check_node_count 3
+else
+  REPLICAS=1
+fi
+
+echo "==> Installing Istio ${ISTIO_VERSION} (HA=${ISTIO_HA}, istiod replicas=${REPLICAS})"
+
+echo "==> Adding Istio Helm repository"
+helm repo add istio https://istio-release.storage.googleapis.com/charts
+helm repo update istio
+
+echo "==> Creating istio-system namespace"
+kubectl get namespace istio-system >/dev/null 2>&1 \
+  || kubectl create namespace istio-system
+
+echo "==> Installing istio-base ${ISTIO_VERSION}"
+helm upgrade --install istio-base istio/base \
+  --version "${ISTIO_VERSION}" \
+  --namespace istio-system \
+  --values "${SCRIPT_DIR}/istio-base-values.yaml" \
+  --wait \
+  --timeout 5m
+
+echo "==> Installing istiod ${ISTIO_VERSION} (replicas=${REPLICAS})"
+helm upgrade --install istiod istio/istiod \
+  --version "${ISTIO_VERSION}" \
+  --namespace istio-system \
+  --values "${SCRIPT_DIR}/istiod-values.yaml" \
+  --set pilot.replicaCount="${REPLICAS}" \
+  --wait \
+  --timeout 5m
+
+# ---------------------------------------------------------------------------
+# Ensure addon namespaces exist before applying PeerAuthentication policies.
+# OTC creates these when addons are installed — they may not exist yet if
+# addons haven't fully initialised.
+# ---------------------------------------------------------------------------
+echo "==> Ensuring addon namespaces exist"
+for ns in monitoring logging; do
+  kubectl get namespace "$ns" >/dev/null 2>&1 \
+    || kubectl create namespace "$ns"
+done
+
+# ---------------------------------------------------------------------------
+# Apply PeerAuthentication policies:
+#   - STRICT mesh-wide (istio-system)
+#   - PERMISSIVE for addon namespaces (kube-system, monitoring, logging)
+# ---------------------------------------------------------------------------
+echo "==> Applying mTLS PeerAuthentication policies"
+kubectl apply -f "${SCRIPT_DIR}/peer-authentication.yaml"
+
+echo "==> Verifying installation"
+kubectl rollout status deployment/istiod -n istio-system
+kubectl get pods -n istio-system
+
+echo ""
+echo "Istio ${ISTIO_VERSION} installed successfully with STRICT mTLS."
+echo ""
+echo "NOTE: If cie-collector deployed to a namespace other than 'monitoring',"
+echo "      check and add a PERMISSIVE policy for that namespace:"
+echo "  kubectl get pods -A | grep -E 'prometheus|grafana|alertmanager'"
+echo ""
+echo "To enable sidecar injection in a namespace before deploying workloads:"
+echo "  kubectl label namespace <ns> istio-injection=enabled"
+echo ""
+echo "To verify with istioctl (if available):"
+echo "  istioctl verify-install"
+echo "  istioctl analyze"

@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# PeerAuthentication policies
+#
+# Strategy:
+#   - Mesh-wide STRICT mTLS applied via istio-system default policy.
+#     All workload namespaces with sidecar injection get STRICT automatically.
+#   - CCE addon namespaces get explicit PERMISSIVE policies since addons
+#     are managed by OTC and run without Istio sidecars.
+#
+# CCE addon namespace mapping:
+#   kube-system   — metrics-server, log-agent, kube-proxy, CNI
+#   monitoring    — cie-collector (Prometheus, Grafana, Alertmanager)
+#   logging       — included as a precaution (some OTC clusters use this)
+#
+# If cie-collector deploys to a different namespace, add a matching
+# PERMISSIVE policy for that namespace before applying STRICT mesh-wide.
+# Check with: kubectl get pods -A | grep -E 'prometheus|grafana|alertmanager'
+# ---------------------------------------------------------------------------
+
+# Mesh-wide default: STRICT
+# Applies to all injected namespaces without their own policy.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+---
+# kube-system: PERMISSIVE
+# metrics-server, log-agent, kube-proxy, CNI — no sidecars.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: kube-system
+spec:
+  mtls:
+    mode: PERMISSIVE
+---
+# monitoring: PERMISSIVE
+# cie-collector (Prometheus, Grafana, Alertmanager) — no sidecars.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: monitoring
+spec:
+  mtls:
+    mode: PERMISSIVE
+---
+# logging: PERMISSIVE
+# Precautionary — some OTC clusters deploy log components here.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: logging
+spec:
+  mtls:
+    mode: PERMISSIVE

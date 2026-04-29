@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+# istiod-values.yaml — values for the istio/istiod Helm chart
+#
+# Adjust pilot.replicaCount to match your CCE cluster topology:
+#   1 → single-master cluster (dev/staging)
+#   3 → HA cluster (production, one replica per AZ)
+#
+# Node flavour: s9.large.4 (2 vCPU / 8 GB RAM)
+# Chart default requests (500m CPU / 2 GB RAM) fit comfortably on these nodes.
+# ---------------------------------------------------------------------------
+
+pilot:
+  replicaCount: 1         # set to 3 for HA clusters
+
+meshConfig:
+  accessLogFile: /dev/stdout   # enable access logging; remove in production
+  enableTracing: true
+  trustDomain: cluster.local
+
+  # Default outbound traffic policy.
+  # ALLOW_ANY: allows traffic to services outside the mesh (permissive)
+  # REGISTRY_ONLY: blocks all traffic not in the service registry (strict)
+  outboundTrafficPolicy:
+    mode: ALLOW_ANY

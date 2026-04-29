@@ -1,0 +1,105 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# lib — shared functions for 2-asm scripts
+# Source this file: . "$(dirname "$(readlink -f "$0")")/lib"
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+EXPORTS_DIR="${SCRIPT_DIR}/../1-paas/exports"
+
+# ---------------------------------------------------------------------------
+# Source istio.env from 1-paas exports if present — sets ISTIO_HA,
+# ISTIO_VERSION, and ISTIO_KUBECONFIG as defaults that can be overridden.
+# ---------------------------------------------------------------------------
+load_env() {
+  env_file="${EXPORTS_DIR}/istio.env"
+  if [ -f "$env_file" ]; then
+    echo "==> Loading configuration from ${env_file}"
+    . "$env_file"
+  else
+    echo "WARNING: ${env_file} not found — run 'tofu apply' in 1-paas first." >&2
+    echo "         Falling back to defaults (non-HA, Istio 1.21.2)." >&2
+    ISTIO_HA="${ISTIO_HA:-false}"
+    ISTIO_VERSION="${ISTIO_VERSION:-1.21.2}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Set KUBECONFIG default from 1-paas exports if not already set.
+# ---------------------------------------------------------------------------
+set_kubeconfig() {
+  if [ -z "${KUBECONFIG:-}" ]; then
+    default_kube="${ISTIO_KUBECONFIG:-${EXPORTS_DIR}/kubeconfig}"
+    if [ -f "$default_kube" ]; then
+      export KUBECONFIG="$default_kube"
+      echo "==> Using kubeconfig: ${KUBECONFIG}"
+    else
+      echo "ERROR: No kubeconfig found at ${default_kube}" >&2
+      echo "       Run 'tofu apply' in 1-paas first, or set KUBECONFIG manually." >&2
+      exit 1
+    fi
+  else
+    echo "==> Using kubeconfig: ${KUBECONFIG}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Check SOCKS5 proxy is set and reachable.
+# ---------------------------------------------------------------------------
+check_proxy() {
+  proxy="${HTTPS_PROXY:-${https_proxy:-}}"
+  if [ -z "$proxy" ]; then
+    echo "" >&2
+    echo "ERROR: HTTPS_PROXY is not set." >&2
+    echo "" >&2
+    echo "The CCE API server is private and only reachable via the bastion." >&2
+    echo "Open a SOCKS5 tunnel in a separate terminal before running this script:" >&2
+    echo "" >&2
+    echo "  ssh -D 1080 -N user@<bastion-ext-ip>" >&2
+    echo "" >&2
+    echo "Then re-run with:" >&2
+    echo "  HTTPS_PROXY=socks5://localhost:1080 $0 $*" >&2
+    echo "" >&2
+    exit 1
+  fi
+
+  proxy_host=$(echo "$proxy" | sed 's|.*://||' | cut -d: -f1)
+  proxy_port=$(echo "$proxy" | sed 's|.*://||' | cut -d: -f2)
+
+  if ! nc -z "$proxy_host" "$proxy_port" 2>/dev/null; then
+    echo "" >&2
+    echo "ERROR: SOCKS5 proxy at $proxy is not reachable." >&2
+    echo "" >&2
+    echo "Start the tunnel in a separate terminal:" >&2
+    echo "" >&2
+    echo "  ssh -D ${proxy_port} -N user@<bastion-ext-ip>" >&2
+    echo "" >&2
+    exit 1
+  fi
+
+  echo "==> SOCKS5 proxy at $proxy is up"
+}
+
+# ---------------------------------------------------------------------------
+# Check there are enough Ready nodes for the requested replica count.
+# $1 = required node count
+# ---------------------------------------------------------------------------
+check_node_count() {
+  required="$1"
+  actual=$(kubectl get nodes --no-headers 2>/dev/null \
+    | grep -c " Ready " || true)
+
+  if [ "$actual" -lt "$required" ]; then
+    echo "" >&2
+    echo "ERROR: HA install requires ${required} Ready nodes," >&2
+    echo "       but only ${actual} found in the cluster." >&2
+    echo "" >&2
+    echo "Either:" >&2
+    echo "  - Deploy with a non-HA cluster and run without --ha" >&2
+    echo "  - Scale up the node pool to ${required} nodes first" >&2
+    echo "" >&2
+    exit 1
+  fi
+
+  echo "==> Node count OK: ${actual} Ready nodes (need ${required})"
+}
