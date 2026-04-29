@@ -1,0 +1,7 @@
+# TLS certificate files — never commit private keys to git
+# Place your certificate bundle here:
+#   cert/tls.crt   — full PEM certificate chain
+#   cert/tls.key   — PEM private key (keep this secret!)
+*.crt
+*.pem
+*.key
