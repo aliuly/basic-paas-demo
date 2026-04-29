@@ -1,4 +1,5 @@
 # Custom patters
+CLAUDE.md
 *.env
 *.env.sh
 clouds.yaml

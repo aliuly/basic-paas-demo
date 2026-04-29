@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  hosts:
+  - "grafana-mern.cassiopeia.public.t-cloud.com"
+  gateways:
+  - istio-system/grafana-gateway
+  http:
+  - route:
+    - destination:
+        host: grafana   # cie-collector Grafana service, port 3000
+        port:
+          number: 3000
