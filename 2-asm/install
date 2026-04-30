@@ -63,6 +63,12 @@ helm upgrade --install istio-base istio/base \
   --timeout 5m
 
 echo "==> Installing istiod ${ISTIO_VERSION} (replicas=${REPLICAS})"
+# Remove any previously patched MutatingWebhookConfiguration before upgrading.
+# Our NodePort patch makes the config incompatible with Helm's upgrade path —
+# Helm cannot atomically transition from a url-based back to service-based
+# clientConfig. Deleting first lets Helm recreate it cleanly from the chart.
+kubectl delete mutatingwebhookconfiguration istio-sidecar-injector \
+  --ignore-not-found >/dev/null 2>&1 || true
 helm upgrade --install istiod istio/istiod \
   --version "${ISTIO_VERSION}" \
   --namespace istio-system \
@@ -70,6 +76,62 @@ helm upgrade --install istiod istio/istiod \
   --set pilot.replicaCount="${REPLICAS}" \
   --wait \
   --timeout 5m
+
+# ---------------------------------------------------------------------------
+# On OTC CCE the managed control plane cannot route to Kubernetes ClusterIPs,
+# so the default webhook URL (https://istiod.istio-system.svc:443) is
+# unreachable from the API server. Expose the webhook on a fixed NodePort and
+# rewrite the MutatingWebhookConfiguration to use a direct worker-node IP.
+#
+# Idempotent: replaces the entire clientConfig each run — works whether the
+# current state has a 'service' block (fresh install) or a 'url' (re-run).
+# ---------------------------------------------------------------------------
+echo "==> Patching istiod webhook for CCE (ClusterIP → NodePort)"
+
+kubectl apply -n istio-system -f - <<'SVCEOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: istiod-webhook-np
+spec:
+  selector:
+    app: istiod
+    istio: pilot
+  ports:
+  - port: 443
+    targetPort: 15017
+    nodePort: 30017
+    protocol: TCP
+  type: NodePort
+SVCEOF
+
+NODE_IP=$(kubectl get nodes \
+  -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+WEBHOOK_URL="https://${NODE_IP}:30017/inject"
+
+patch_webhook() {
+  IDX="$1"
+  # Replace the entire clientConfig in one atomic operation — avoids the
+  # intermediate invalid state that occurs if 'remove service' and 'add url'
+  # are sent as separate JSON Patch ops (Kubernetes validates after each op).
+  CABUNDLE=$(kubectl get mutatingwebhookconfiguration istio-sidecar-injector \
+    -o jsonpath="{.webhooks[${IDX}].clientConfig.caBundle}")
+  kubectl patch mutatingwebhookconfiguration istio-sidecar-injector \
+    --type='json' -p="[{
+      \"op\":\"replace\",
+      \"path\":\"/webhooks/${IDX}/clientConfig\",
+      \"value\":{\"caBundle\":\"${CABUNDLE}\",\"url\":\"${WEBHOOK_URL}\"}
+    }]"
+}
+
+WEBHOOK_COUNT=$(kubectl get mutatingwebhookconfiguration istio-sidecar-injector \
+  -o jsonpath='{range .webhooks[*]}{.name}{"\n"}{end}' | wc -l | tr -d ' ')
+
+i=0
+while [ "$i" -lt "$WEBHOOK_COUNT" ]; do
+  patch_webhook "$i"
+  i=$((i+1))
+done
 
 # ---------------------------------------------------------------------------
 # Ensure addon namespaces exist before applying PeerAuthentication policies.

@@ -5,7 +5,7 @@ metadata:
   namespace: monitoring
 spec:
   hosts:
-  - "grafana-mern.cassiopeia.public.t-cloud.com"
+  - "mern-grafana.cassiopeia.public.t-cloud.com"
   gateways:
   - istio-system/grafana-gateway
   http:
