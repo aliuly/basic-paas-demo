@@ -22,9 +22,14 @@ output "bastion_ext_ip" {
   value = module.bastion.bastion_ext_ip
 }
 
-output "bastion_dns_name" {
-  value = module.bastion.bastion_dns_name
+output "bastion_int_dns" {
+  value = module.bastion.bastion_int_dns
 }
+
+output "bastion_ext_dns" {
+  value = module.bastion.bastion_ext_dns
+}
+
 
 output "vpngw_ip_1" {
   value = module.network.vpngw_ip_1

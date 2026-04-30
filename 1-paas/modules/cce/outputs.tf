@@ -69,6 +69,7 @@ output "node_sg_id" {
   value       = opentelekomcloud_networking_secgroup_v2.cce_node.id
 }
 
+
 output "elb_dns_name" {
   description = "Internal DNS name resolving to the ELB VIP"
   value       = "${var.cluster_name}.${var.dns_zone}"

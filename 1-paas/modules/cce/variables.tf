@@ -122,3 +122,8 @@ variable "bastion_sg_id" {
   description = "Bastion security group ID — permitted to reach the CCE API server on port 5443"
   type        = string
 }
+
+variable "node_subnet_cidr" {
+  description = "CIDR of the CCE node subnet — used to allow OTC-managed master nodes to reach the istiod webhook port (15017) on worker nodes"
+  type        = string
+}

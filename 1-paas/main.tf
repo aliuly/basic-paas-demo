@@ -129,6 +129,7 @@ module "cce" {
   k8s_version       = var.cce_k8s_version
 
   bastion_sg_id     = module.bastion.bastion_sg_id
+  node_subnet_cidr  = "${var.vpc_cidr_prefix}.1.0/24"
 
   # LTS — log-agent add-on destination
   lts_log_group_id         = module.lts.log_group_id
@@ -204,6 +205,17 @@ resource "local_file" "asm_bootstrap" {
     elb_id             = module.cce.elb_id
     high_availability  = module.cce.high_availability
   })
+}
+
+resource "local_file" "cce_env" {
+  filename        = "${path.module}/exports/kube.env"
+  file_permission = "0600"
+  content = <<-EOT
+    EXT_BASTION_HOST="${module.bastion.bastion_ext_dns}"
+    BASTION_DNS_NAME="${module.bastion.bastion_int_dns}"
+    GRAFANA_DNS_NAME="mern-grafana.${var.dns_zone}"
+  EOT
+
 }
 
 # ---------------------------------------------------------------------------

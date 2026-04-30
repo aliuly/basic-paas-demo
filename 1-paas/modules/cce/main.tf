@@ -59,6 +59,19 @@ resource "opentelekomcloud_networking_secgroup_rule_v2" "node_self_ingress" {
   security_group_id = opentelekomcloud_networking_secgroup_v2.cce_node.id
 }
 
+# CCE control-plane masters share the node subnet but use an OTC-managed SG,
+# so they cannot be referenced by group ID. Allow the subnet CIDR so masters
+# can reach the istiod mutating webhook (port 15017) on worker nodes.
+resource "opentelekomcloud_networking_secgroup_rule_v2" "istiod_webhook_from_node_subnet" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30017
+  port_range_max    = 30017
+  remote_ip_prefix  = var.node_subnet_cidr
+  security_group_id = opentelekomcloud_networking_secgroup_v2.cce_node.id
+}
+
 # ELB health-checks and forwarded traffic arrive from the ELB SG
 resource "opentelekomcloud_networking_secgroup_rule_v2" "node_from_elb" {
   direction         = "ingress"
@@ -138,7 +151,7 @@ resource "opentelekomcloud_cce_node_pool_v3" "workers" {
   cluster_id         = opentelekomcloud_cce_cluster_v3.this.id
   name               = "workers"
   os                 = "EulerOS 2.9"
-  flavor             = "s9.xlarge.4"
+  flavor             = "x1.xlarge.3"
   initial_node_count = local.effective_node_count
   key_pair           = var.node_keypair
 
@@ -259,13 +272,6 @@ resource "opentelekomcloud_dns_recordset_v2" "cce_api" {
   tags    = var.tags
 }
 
-resource "opentelekomcloud_dns_recordset_v2" "grafana_cname" {
-  zone_id = data.opentelekomcloud_dns_zone_v2.intdns.id
-  name    = "grafana-mern.${var.dns_zone}."
-  type    = "CNAME"
-  records = ["${var.cluster_name}.${var.dns_zone}."]
-  tags    = var.tags
-}
 
 # ---------------------------------------------------------------------------
 # Node IDs — resolved after the node pool is ready.
