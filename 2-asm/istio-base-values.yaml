@@ -1,7 +1,0 @@
-# ---------------------------------------------------------------------------
-# istio-base-values.yaml — values for the istio/base Helm chart
-#
-# Installs Istio CRDs and cluster-wide RBAC.
-# ---------------------------------------------------------------------------
-
-defaultRevision: default
