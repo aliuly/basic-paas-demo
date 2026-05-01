@@ -55,3 +55,42 @@ resource "opentelekomcloud_cce_addon_v3" "cie_collector" {
 
   depends_on = [opentelekomcloud_cce_node_pool_v3.workers]
 }
+
+# ---------------------------------------------------------------------------
+# 3. grafana — dashboard UI for cie-collector metrics
+# Auto-discovers Prometheus from the monitoring namespace.
+# Access via: kubectl port-forward svc/grafana-oss 3000:3000 -n monitoring
+# ---------------------------------------------------------------------------
+
+resource "opentelekomcloud_cce_addon_v3" "grafana" {
+  cluster_id       = opentelekomcloud_cce_cluster_v3.this.id
+  template_name    = "grafana"
+  template_version = "1.3.3"
+
+  values {
+    basic = {
+      swr_addr = "swr.eu-de.otc.t-systems.com"
+      swr_user = "cce-addons"
+    }
+    custom = {
+      cluster_domain   = "cluster.local"
+      storage_class    = "csi-disk-topology"
+      storage_type     = "SAS"
+      enable_node_port = "false"
+      enable_anonymous = "true"
+    }
+    flavor = jsonencode({
+      name = "custom-resources"
+      resources = [{
+        name        = "grafana"
+        replicas    = 1
+        requestsCpu = "200m"
+        requestsMem = "200Mi"
+        limitsCpu   = "500m"
+        limitsMem   = "2Gi"
+      }]
+    })
+  }
+
+  depends_on = [opentelekomcloud_cce_addon_v3.cie_collector]
+}

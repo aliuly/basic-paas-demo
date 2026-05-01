@@ -86,7 +86,7 @@ module "cce" {
   neutron_subnet_id = module.network.neutron_subnet_id
 
   node_count        = var.cce_node_count
-
+  worker_node_flavor = var.cce_worker_flavor
 
   dns_zone          = var.dns_zone
   k8s_version       = var.cce_k8s_version

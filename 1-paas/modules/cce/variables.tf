@@ -30,11 +30,6 @@ variable "high_availability" {
   default = false
 }
 
- variable "worker_node_flavor" {
-   type = string
-   default ="x1.xlarge.3"
- }
-
 
 # ---- Network ----
 
@@ -58,13 +53,19 @@ variable "neutron_subnet_id" {
   type        = string
 }
 
-# ---- Worker node count ----
+# ---- Worker node ----
 
 variable "node_count" {
   description = "Number of worker nodes (ignored in HA mode — overridden to 3)"
   type        = number
   default     = 2
 }
+
+variable "worker_node_flavor" {
+  type = string
+  default ="x1.xlarge.3"
+}
+
 # ---- Kubernetes ----
 
 variable "k8s_version" {

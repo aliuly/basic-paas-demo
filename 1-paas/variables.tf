@@ -89,4 +89,7 @@ variable "cce_k8s_version" {
   type        = string
   default     = "v1.29"
 }
-
+variable "cce_worker_flavor" {
+  type = string
+  default ="x1.xlarge.3"
+}

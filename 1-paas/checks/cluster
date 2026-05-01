@@ -87,7 +87,7 @@ fi
 # ---------------------------------------------------------------------------
 # 3. cie-collector (monitoring)
 # ---------------------------------------------------------------------------
-section "3. cie-collector (Prometheus + Grafana)"
+section "3. cie-collector (Prometheus + Thanos)"
 
 check_apiservice "v1beta1.custom.metrics.k8s.io" "custom.metrics.k8s.io APIService"
 
@@ -106,6 +106,37 @@ else
   kubectl get pods -n monitoring 2>/dev/null | grep -v "log-agent" || true
   echo ""
   kubectl get pvc -n monitoring 2>&1 || true
+fi
+
+# ---------------------------------------------------------------------------
+# 4. grafana
+# ---------------------------------------------------------------------------
+section "4. grafana"
+
+GRAFANA_RUNNING=$(kubectl get pods -n monitoring --no-headers 2>/dev/null \
+  | grep "^grafana-" | grep -c "Running")
+GRAFANA_RUNNING="${GRAFANA_RUNNING:-0}"
+
+if [ "${GRAFANA_RUNNING}" -ge 1 ]; then
+  pass "grafana pod(s) Running: ${GRAFANA_RUNNING}"
+else
+  fail "No grafana pods Running in monitoring"
+  kubectl get pods -n monitoring 2>/dev/null | grep "^grafana-" || true
+fi
+
+GRAFANA_POD=$(kubectl get pods -n monitoring --no-headers 2>/dev/null \
+  | grep "^grafana-" | grep "Running" | awk '{print $1}' | head -1)
+if [ -n "${GRAFANA_POD}" ]; then
+  GRAFANA_IP=$(kubectl get pod -n monitoring "${GRAFANA_POD}" \
+    -o jsonpath='{.status.podIP}' 2>/dev/null)
+  GRAFANA_DB=$(kubectl exec -n monitoring "${GRAFANA_POD}" -- \
+    wget -qO- "http://${GRAFANA_IP}:3000/api/health" 2>/dev/null \
+    | grep -c '"database":"ok"')
+  if [ "${GRAFANA_DB:-0}" -ge 1 ]; then
+    pass "grafana health: database ok"
+  else
+    fail "grafana health: /api/health not responding or database not ok"
+  fi
 fi
 
 #~ # ---------------------------------------------------------------------------
@@ -172,7 +203,7 @@ else
 fi
 
 if [ "${CAP_AVAIL_MEM}" -lt 2048 ]; then
-  fail "Less than 2Gi RAM available (${CAP_AVAIL_MEM}Mi) — Istio + sidecars may not schedule"
+  fail "Less than 2Gi RAM available (${CAP_AVAIL_MEM}Mi)"
 else
   pass "Memory headroom: ${CAP_AVAIL_MEM}Mi available"
 fi
