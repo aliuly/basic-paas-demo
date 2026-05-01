@@ -1,4 +1,6 @@
-# inside your empty directory
+# This directory is managed by OpenTofu.
+# Files here are generated at apply time and are intentionally excluded from git.
+# See .gitignore for the exclusion rule.
 *
 !.gitignore
 
