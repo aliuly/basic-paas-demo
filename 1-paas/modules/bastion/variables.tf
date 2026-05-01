@@ -12,11 +12,6 @@ variable "natgw_id" {
   type = string
 }
 
-variable "node_keypair" {
-  type = string
-  description = "Key pair to use"
-}
-
 variable "local_users" {
   description = "Small set of users to create"
   sensitive = true
@@ -42,7 +37,7 @@ variable "region" {
 #
 # Generics
 #
-variable "tags" {
+variable "common_tags" {
   description = "Common tags for environment"
   type = map(string)
   default = {
@@ -50,10 +45,4 @@ variable "tags" {
     managed_by = "OpenTofu"
     CASIO = "Use2"
   }
-}
-
-variable "environment" {
-  description = "Environment name"
-  type        = string
-  default     = "dev"
 }

@@ -22,7 +22,7 @@ resource "opentelekomcloud_enterprise_vpn_gateway_v5" "vpngw" {
   eip2 {
     id = var.eip_2
   }
-  tags = var.tags
+  tags = var.common_tags
 }
 
 data "external" "vpnpeer_customer_1" {
@@ -38,14 +38,14 @@ resource "opentelekomcloud_enterprise_vpn_customer_gateway_v5" "vpn_customer_1" 
   name     = "vpnpeer-customer-1"
   id_type  = "ip"
   id_value = data.external.vpnpeer_customer_1.result["value"]
-  tags = var.tags
+  tags = var.common_tags
 }
 
 resource "opentelekomcloud_enterprise_vpn_customer_gateway_v5" "vpn_customer_2" {
   name     = "vpnpeer-customer-2"
   id_type  = "ip"
   id_value = data.external.vpnpeer_customer_2.result["value"]
-  tags = var.tags
+  tags = var.common_tags
 }
 
 # Connect the VPNs
@@ -57,7 +57,7 @@ resource "opentelekomcloud_enterprise_vpn_connection_v5" "vlink_customer_1" {
   peer_subnets        = var.peer_subnets
   vpn_type            = "static"
   psk                 = var.vpn_psk
-  tags = var.tags
+  tags = var.common_tags
 }
 resource "opentelekomcloud_enterprise_vpn_connection_v5" "vlink_customer_2" {
   name                = "tunnel-customer-2"
@@ -67,7 +67,7 @@ resource "opentelekomcloud_enterprise_vpn_connection_v5" "vlink_customer_2" {
   peer_subnets        = var.peer_subnets
   vpn_type            = "static"
   psk                 = var.vpn_psk
-  tags = var.tags
+  tags = var.common_tags
 }
 
 

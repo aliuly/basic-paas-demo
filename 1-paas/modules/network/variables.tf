@@ -1,3 +1,13 @@
+variable "common_tags" {
+  description = "Common tags for environment"
+  type = map(string)
+  default = {
+    environment = "development"
+    managed_by = "OpenTofu"
+    CASIO = "Use2"
+  }
+}
+
 variable "region" {
   description = "OTC region"
   type        = string
@@ -65,22 +75,6 @@ variable "vpn_subnet_gateway_ip" {
   default     = "10.0.3.1"
 }
 
-variable "tags" {
-  description = "Resource tags"
-  type        = map(string)
-  default     = {}
-}
-
-variable "node_keypair" {
-  description = "SSH key pair name"
-  type        = string
-}
-
-variable "environment" {
-  description = "Assign this name to the VPN gateway"
-  type        = string
-}
-
 variable "vpn_name" {
   description = "Name to allow other VPCs to find our VPNs"
   type = string
@@ -89,12 +83,6 @@ variable "vpn_name" {
 variable "dns_zone" {
   description = "DNS zone to populate DNS records"
   type = string
-}
-
-variable "my_ssh_key" {
-  description = "SSH public key text"
-  type = string
-  sensitive = true
 }
 
 variable "datastore_subnet_name" {

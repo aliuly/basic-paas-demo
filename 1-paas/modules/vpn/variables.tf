@@ -35,7 +35,7 @@ variable "vpn_name" {
 }
 
 
-variable "tags" {
+variable "common_tags" {
   description = "Common tags for environment"
   type = map(string)
   default = {

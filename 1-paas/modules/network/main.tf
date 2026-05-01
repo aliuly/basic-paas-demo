@@ -11,7 +11,7 @@ resource "opentelekomcloud_vpc_v1" "this" {
   name   = var.vpc_name
   cidr   = var.vpc_cidr
   region = var.region
-  tags   = var.tags
+  tags   = var.common_tags
 }
 
 resource "opentelekomcloud_vpc_subnet_v1" "this" {
@@ -21,7 +21,7 @@ resource "opentelekomcloud_vpc_subnet_v1" "this" {
   vpc_id            = opentelekomcloud_vpc_v1.this.id
   #~ availability_zone = var.availability_zone
   #~ dns_list          = ["100.125.4.25", "8.8.8.8"]
-  tags              = var.tags
+  tags              = var.common_tags
 }
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ resource "opentelekomcloud_vpc_subnet_v1" "bastion" {
   cidr       = var.bastion_subnet_cidr
   gateway_ip = var.bastion_subnet_gateway_ip
   vpc_id     = opentelekomcloud_vpc_v1.this.id
-  tags       = var.tags
+  tags       = var.common_tags
 }
 
 
@@ -46,7 +46,7 @@ resource "opentelekomcloud_vpc_subnet_v1" "vpn" {
   cidr       = var.vpn_subnet_cidr
   gateway_ip = var.vpn_subnet_gateway_ip
   vpc_id     = opentelekomcloud_vpc_v1.this.id
-  tags       = var.tags
+  tags       = var.common_tags
 }
 
 # ---------------------------------------------------------------------------
@@ -57,5 +57,5 @@ resource "opentelekomcloud_vpc_subnet_v1" "datastore" {
   cidr       = var.datastore_subnet_cidr
   gateway_ip = var.datastore_subnet_gateway_ip
   vpc_id     = opentelekomcloud_vpc_v1.this.id
-  tags       = var.tags
+  tags       = var.common_tags
 }

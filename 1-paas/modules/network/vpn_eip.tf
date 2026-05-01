@@ -9,7 +9,7 @@ resource "opentelekomcloud_vpc_eip_v1" "eip_vpngw_1" {
     size = 10
     share_type = "PER"
   }
-  tags = var.tags
+  tags = var.common_tags
 
   lifecycle {
     # OpenTofu will create/destroy it, but never 'update' it in place
@@ -29,7 +29,7 @@ resource "opentelekomcloud_vpc_eip_v1" "eip_vpngw_2" {
     size = 10
     share_type = "PER"
   }
-  tags = var.tags
+  tags = var.common_tags
   lifecycle {
     # OpenTofu will create/destroy it, but never 'update' it in place
     # ignore_changes = all
@@ -48,7 +48,7 @@ resource "opentelekomcloud_dns_recordset_v2" "dns_a_vpngw_1" {
   name        = "www-${var.vpn_name}-1.${var.dns_zone}."
   type        = "A"
   records     = [ opentelekomcloud_vpc_eip_v1.eip_vpngw_1.publicip[0].ip_address ]
-  tags = var.tags
+  tags = var.common_tags
 }
 
 resource "opentelekomcloud_dns_recordset_v2" "dns_a_vpngw_2" {
@@ -56,6 +56,6 @@ resource "opentelekomcloud_dns_recordset_v2" "dns_a_vpngw_2" {
   name        = "www-${var.vpn_name}-2.${var.dns_zone}."
   type        = "A"
   records     = [ opentelekomcloud_vpc_eip_v1.eip_vpngw_2.publicip[0].ip_address ]
-  tags = var.tags
+  tags = var.common_tags
 }
 
