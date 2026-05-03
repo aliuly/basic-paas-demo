@@ -13,10 +13,13 @@ envconfig() {
 }
 envconfig SOCKSPORT 1080
 envconfig RUSER ""
+vars_dir=.
 
 while [ $# -gt 0 ]
 do
   case "$1" in
+  -e) vars_dir="$2" ; shift 2 ;;
+  --vars-dir=*) vars_dir=${1#--vars-dir=} ; shift ;;
   --socks=*) SOCKSPORT="${1#--socks=}" ;;
   --socksport=*) SOCKSPORT="${1#--socksport=}" ;;
   -s) SOCKSPORT="${2}" ; shift ;;
@@ -29,10 +32,27 @@ do
   shift
 done
 
-exports_dir=$(readlink -f "$(dirname "$0")/../1-paas/exports/")
+exports_dir=$(readlink -f "$(dirname "$0")/../1-infra/exports/")
 [ ! -f "$exports_dir/kube.env" ] \
-  && die "Missing exports/kube.env:  Make sure 1-paas was run succesfully"
+  && die "Missing exports/kube.env:  Make sure 1-infra was run succesfully"
+
+set -a
 . "$exports_dir/kube.env" || die "Invalid configuration"
+set +a
+
+
+mydir=$(readlink -f "$(dirname "$0")")
+oIFS="$IFS" ; IFS="
+"
+for _f in $(find "$vars_dir" -mindepth 1 -maxdepth 1 '(' -name '*.env' -o -name '*.env.sh' ')' )
+do
+  IFS="$oIFS"
+  set -a
+  [ -f "$_f" ] && . "$_f"
+  set +a
+done
+IFS="$oIFS"
+unset _f oIFS
 
 case "$EXT_BASTION_HOST" in
 *@*) [ -n "$RUSER" ] && echo "EXT_BASTION_HOST already has a remote user name, RUSER ignored" 1>&2 ;;
@@ -58,10 +78,17 @@ if ! nc -z localhost $SOCKSPORT ; then
   echo "Launching proxy" 1>&2
   if ! ssh -o batchmode=yes $EXT_BASTION_HOST true ; then
     echo "Unable to log in to $EXT_BASTION_HOST" 1>&2
-    echo -n "Try to remove $EXT_BASTION_HOST from known hosts?:? [y/N]: "
+    if (echo "$EXT_BASTION_HOST" | grep -q '@') ; then
+      host="$(echo "$EXT_BASTION_HOST" | cut -d@ -f2-)"
+    else
+      host="$EXT_BASTION_HOST"
+    fi
+    echo -n "Try to remove $host from known hosts?:? [y/N]: "
     read -r CONFIRM
     case "$CONFIRM" in
-    [yY][eE][sS]|[yY])  ssh-keygen -R "$EXT_BASTION_HOST" ;;
+    [yY][eE][sS]|[yY])
+      ssh-keygen -R "$host"
+      ;;
     *) echo "Skipping..." ;;
     esac
     echo -n "Try to connect interactively to $EXT_BASTION_HOST?:? [y/N]: "
@@ -78,7 +105,7 @@ if ! nc -z localhost $SOCKSPORT ; then
 fi
 
 export HTTPS_PROXY=socks5://localhost:$SOCKSPORT
-export KUBECONFIG=$(readlink -f "$(dirname "$0")/../1-paas/exports/kubeconfig")
+export KUBECONFIG=$(readlink -f "$(dirname "$0")/../1-infra/exports/kubeconfig")
 
 if [ $# -eq 0 ] ; then
   kubectl version

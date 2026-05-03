@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bezkoder-api
+  namespace: mern-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: bezkoder-api
+  ports:
+  - port: 8080
+    targetPort: 8080

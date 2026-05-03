@@ -1,0 +1,4 @@
+elbId: ""        # required; set from ELB_ID in kube.env via setup script
+elbClass: performance
+image: ghcr.io/tortugalabs/http-to-https-redir:latest
+replicas: 1

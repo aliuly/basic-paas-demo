@@ -1,0 +1,5 @@
+apiVersion: v2
+name: http-redir
+description: HTTP to HTTPS redirect deployment and ingress
+type: application
+version: 0.1.0

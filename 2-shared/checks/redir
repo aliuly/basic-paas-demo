@@ -1,0 +1,60 @@
+#!/bin/sh
+# Verifies the HTTP→HTTPS redirect on the ingress ELB.
+#
+# Usage:
+#   ./krun ./checks/ingress
+#
+# krun sets HTTPS_PROXY and exports kube.env vars (ELB_VIP) before running.
+#
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${ELB_VIP:?not set — run this script via krun}"
+
+PROXY="${HTTPS_PROXY:-socks5://localhost:1080}"
+
+# ---------------------------------------------------------------------------
+# 1. HTTP redirect response code
+# ---------------------------------------------------------------------------
+section "1. HTTP redirect (${ELB_VIP}:80)"
+
+HTTP_CODE=$(curl -s --proxy "$PROXY" --max-time 5 \
+  -o /dev/null -w "%{http_code}" \
+  "http://${ELB_VIP}/" 2>/dev/null)
+case "$HTTP_CODE" in
+  301|302) pass "HTTP ${HTTP_CODE} redirect received" ;;
+  000)     fail "No response — check sg-ingress-elb allows TCP 80" ;;
+  *)       fail "Expected 301/302, got HTTP ${HTTP_CODE}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 2. Location header points to HTTPS
+# ---------------------------------------------------------------------------
+section "2. Location header"
+
+LOCATION=$(curl -s --proxy "$PROXY" --max-time 5 \
+  -o /dev/null -w "%{redirect_url}" \
+  "http://${ELB_VIP}/" 2>/dev/null)
+case "$LOCATION" in
+  https://*) pass "Location: ${LOCATION}" ;;
+  "")        fail "No Location header in redirect response" ;;
+  *)         fail "Location does not start with https:// — got: ${LOCATION}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "$PASS" "$FAIL"
+echo "============================================================"
+echo ""
+
+[ "$FAIL" -eq 0 ] || exit 1

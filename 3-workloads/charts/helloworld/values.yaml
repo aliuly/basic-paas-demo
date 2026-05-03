@@ -1,0 +1,7 @@
+elbId: ""      # required; set from ELB_ID in kube.env via setup script
+elbClass: performance
+host: ""       # required; set from HELLO_HOST in kube.env via setup script
+certId: ""     # required; set from CERT_ID in kube.env via setup script
+certName: ""   # required; set from CERT_NAME in kube.env via setup script
+image: lipanski/docker-static-website:latest
+replicas: 1

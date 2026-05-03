@@ -1,0 +1,104 @@
+#!/bin/sh
+# Installs Kiali as the ASM console via upstream Helm chart and wires it to the ELB.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   ../1-infra/krun ./setup/asm-console
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports all kube.env vars
+# (ELB_ID, ASM_HOST, CERT_ID, CERT_NAME, GRAFANA_HOST) before running this script.
+#
+# Override the Kiali version:
+#   KIALI_VERSION=1.84.0 ../1-infra/krun ./setup/asm-console
+#
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+: "${ELB_ID:?not set — run this script via krun}"
+: "${ASM_HOST:?not set — run this script via krun}"
+: "${CERT_ID:?not set — run this script via krun}"
+: "${CERT_NAME:?not set — run this script via krun}"
+: "${GRAFANA_HOST:?not set — run this script via krun}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+EXPORTS_DIR=$(dirname "$KUBECONFIG")
+KIALI_VERSION=${KIALI_VERSION:-1.83.0}
+
+echo "==> Installing ASM console (Kiali ${KIALI_VERSION})"
+
+# ---------------------------------------------------------------------------
+# Helm repo
+# ---------------------------------------------------------------------------
+if ! helm repo list 2>/dev/null | grep -q '^kiali[[:space:]]'; then
+  helm repo add kiali https://kiali.org/helm-charts
+fi
+helm repo update kiali
+
+# ---------------------------------------------------------------------------
+# TLS secret in istio-system
+# ---------------------------------------------------------------------------
+if kubectl get secret "${CERT_NAME}" --namespace istio-system >/dev/null 2>&1; then
+  STORED=$(kubectl get secret "${CERT_NAME}" --namespace istio-system \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d)
+  CURRENT=$(cat "${EXPORTS_DIR}/tls.crt")
+  if [ "$STORED" != "$CURRENT" ]; then
+    echo "TLS secret '${CERT_NAME}' cert has changed, replacing..."
+    kubectl create secret tls "${CERT_NAME}" \
+      --cert="${EXPORTS_DIR}/tls.crt" \
+      --key="${EXPORTS_DIR}/tls.key" \
+      --namespace istio-system \
+      --dry-run=client -o yaml | kubectl replace -f -
+  fi
+else
+  kubectl create secret tls "${CERT_NAME}" \
+    --cert="${EXPORTS_DIR}/tls.crt" \
+    --key="${EXPORTS_DIR}/tls.key" \
+    --namespace istio-system
+fi
+
+# ---------------------------------------------------------------------------
+# kiali/kiali-server — release name "asm-console" sets the service name
+# ---------------------------------------------------------------------------
+HELM_STATUS=$(helm status asm-console --namespace istio-system 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'asm-console' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall asm-console --namespace istio-system
+    ;;
+esac
+
+helm upgrade --install asm-console kiali/kiali-server \
+  --namespace istio-system \
+  --version "${KIALI_VERSION}" \
+  --set fullnameOverride=asm-console \
+  --set deployment.service_type=NodePort \
+  --set auth.strategy=anonymous \
+  --set external_services.prometheus.url=http://prometheus-query.monitoring:10902 \
+  --set external_services.grafana.enabled=true \
+  --set external_services.grafana.internal_url=http://grafana-oss.monitoring:3000 \
+  --set "external_services.grafana.external_url=https://${GRAFANA_HOST}" \
+  --wait --timeout 5m
+
+# ---------------------------------------------------------------------------
+# ASM console Ingress
+# ---------------------------------------------------------------------------
+HELM_STATUS=$(helm status asm-console-ingress --namespace istio-system 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'asm-console-ingress' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall asm-console-ingress --namespace istio-system
+    ;;
+esac
+
+helm upgrade --install asm-console-ingress "$SCRIPT_DIR/../charts/asm-console" \
+  --namespace istio-system \
+  --set asmConsole.elbId="${ELB_ID}" \
+  --set asmConsole.host="${ASM_HOST}" \
+  --set asmConsole.certId="${CERT_ID}" \
+  --set asmConsole.certName="${CERT_NAME}"
+
+kubectl get ingress -n istio-system
+
+echo ""
+echo "ASM console: https://${ASM_HOST}/"
+echo ""

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Deploys the HTTP→HTTPS redirect service via Helm.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   ../1-infra/krun ./setup/http-redir
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports all kube.env vars
+# (ELB_ID, ...) before running this script.
+#
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+: "${ELB_ID:?not set — run this script via krun}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+kubectl get namespace local-tools >/dev/null 2>&1 \
+  || kubectl create namespace local-tools
+
+# Uninstall first if the release is in a failed/pending state
+HELM_STATUS=$(helm status http-redir --namespace local-tools 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'http-redir' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall http-redir --namespace local-tools
+    ;;
+esac
+
+helm upgrade --install http-redir "$SCRIPT_DIR/../charts/http-redir" \
+  --namespace local-tools \
+  --set elbId="${ELB_ID}"
+
+kubectl get all -n local-tools
+kubectl get ingress -n local-tools

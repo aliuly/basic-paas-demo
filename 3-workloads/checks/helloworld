@@ -1,0 +1,146 @@
+#!/bin/sh
+# Verifies the helloworld Ingress is correctly wired and reachable through the ELB.
+#
+# Usage:
+#   ./krun ./checks/helloworld
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env vars
+# (ELB_VIP, HELLO_HOST) before running this script.
+#
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+# No -e — run all checks and report all failures before exiting.
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${ELB_VIP:?not set — run this script via krun}"
+: "${HELLO_HOST:?not set — run this script via krun}"
+
+PROXY="${HTTPS_PROXY:-socks5://localhost:1080}"
+
+# ---------------------------------------------------------------------------
+# 1. Ingress resource
+# ---------------------------------------------------------------------------
+section "1. Ingress resource"
+
+if kubectl get ingress helloworld -n helloworld >/dev/null 2>&1; then
+  pass "Ingress 'helloworld' exists in helloworld"
+  INGRESS_ELB=$(kubectl get ingress helloworld -n helloworld \
+    -o jsonpath='{.metadata.annotations.kubernetes\.io/elb\.id}' 2>/dev/null || true)
+  if [ -n "${INGRESS_ELB:-}" ]; then
+    pass "elb.id annotation: ${INGRESS_ELB}"
+  else
+    fail "kubernetes.io/elb.id annotation not set"
+  fi
+else
+  fail "Ingress 'helloworld' not found in helloworld — run setup/helloworld first"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Ingress status
+# ---------------------------------------------------------------------------
+section "2. Ingress status"
+
+INGRESS_IP=$(kubectl get ingress helloworld -n helloworld \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+if [ -n "${INGRESS_IP:-}" ]; then
+  pass "ELB address in Ingress status: ${INGRESS_IP}"
+else
+  fail "No ELB address in Ingress status — ELB listener may not be provisioned yet"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Pod running
+# ---------------------------------------------------------------------------
+section "3. Pod"
+
+POD_COUNT=$(kubectl get pods -n helloworld --no-headers 2>/dev/null | grep -c "Running" || true)
+if [ "${POD_COUNT:-0}" -ge 1 ]; then
+  pass "helloworld pod(s) Running: ${POD_COUNT}"
+else
+  fail "No helloworld pods Running"
+  kubectl get pods -n helloworld 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Istio sidecars
+# ---------------------------------------------------------------------------
+section "4. Istio sidecars"
+
+ISTIOD_READY=$(kubectl get deployment istiod -n istio-system \
+  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [ "${ISTIOD_READY:-0}" -gt 0 ]; then
+  NS_LABEL=$(kubectl get namespace helloworld \
+    -o jsonpath='{.metadata.labels.istio-injection}' 2>/dev/null || echo "")
+  if [ "$NS_LABEL" = "enabled" ]; then
+    pass "Namespace 'helloworld' has istio-injection=enabled"
+  else
+    fail "Namespace 'helloworld' missing istio-injection=enabled label"
+  fi
+  SIDECAR_COUNT=$(kubectl get pods -n helloworld \
+    -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.name}{"\n"}{end}{end}' \
+    2>/dev/null | grep -c '^istio-proxy$' || true)
+  if [ "${SIDECAR_COUNT:-0}" -ge 1 ]; then
+    pass "Istio sidecar present in ${SIDECAR_COUNT} pod container(s)"
+  else
+    fail "No istio-proxy sidecar found in helloworld pods"
+  fi
+else
+  printf "  SKIP  ASM/istiod not running — sidecar checks skipped\n"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. TLS certificate
+# ---------------------------------------------------------------------------
+section "5. TLS certificate (${HELLO_HOST})"
+
+HTTP_CODE=$(curl -s --proxy "$PROXY" --max-time 5 \
+  --resolve "${HELLO_HOST}:443:${ELB_VIP}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${HELLO_HOST}/" 2>/dev/null || :)
+case "$HTTP_CODE" in
+  000) fail "TLS handshake failed — certificate may be invalid or untrusted for ${HELLO_HOST}" ;;
+  *)   pass "TLS certificate valid for ${HELLO_HOST} (HTTP ${HTTP_CODE})" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 6. HTTPS host-based routing + page content
+# ---------------------------------------------------------------------------
+section "6. HTTPS content (Host: ${HELLO_HOST})"
+
+BODY=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  -H "Host: ${HELLO_HOST}" \
+  "https://${ELB_VIP}/" 2>/dev/null || true)
+
+HTTP_CODE=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  -H "Host: ${HELLO_HOST}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${ELB_VIP}/" 2>/dev/null || :)
+
+case "$HTTP_CODE" in
+  200) pass "HTTPS 200 — server responding" ;;
+  000) fail "No response (connection refused or timed out)" ;;
+  *)   fail "Unexpected HTTPS ${HTTP_CODE}" ;;
+esac
+
+if echo "${BODY:-}" | grep -q "Authorized Users Only"; then
+  pass "Page content: 'Authorized Users Only' found"
+else
+  fail "Page content: expected 'Authorized Users Only' not found in response"
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "$PASS" "$FAIL"
+echo "============================================================"
+echo ""
+
+[ "$FAIL" -eq 0 ] || exit 1

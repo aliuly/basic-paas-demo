@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bezkoder-ui
+  namespace: mern-demo
+spec:
+  replicas: {{ .Values.ui.replicas }}
+  selector:
+    matchLabels:
+      app: bezkoder-ui
+  template:
+    metadata:
+      labels:
+        app: bezkoder-ui
+    spec:
+      imagePullSecrets:
+      - name: default-secret
+      containers:
+      - name: bezkoder-ui
+        image: {{ .Values.ui.image | quote }}
+        ports:
+        - containerPort: 80

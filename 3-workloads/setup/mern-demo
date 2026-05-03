@@ -1,0 +1,168 @@
+#!/bin/sh
+# Deploys the mern-demo app (bezkoder-api + bezkoder-ui + oauth2-proxy) via Helm.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   ./krun ./setup/mern-demo
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env + dev.env vars before
+# running this script.
+#
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+: "${ELB_ID:?not set — run this script via krun}"
+: "${DEMO_HOST:?not set — run this script via krun}"
+: "${CERT_ID:?not set — run this script via krun}"
+: "${CERT_NAME:?not set — run this script via krun}"
+: "${DDS_HOST:?not set — run this script via krun}"
+: "${DDS_PORT:?not set — run this script via krun}"
+: "${DDS_PASSWORD:?not set — run this script via krun}"
+: "${MERN_DEMO_OAUTH2_IDP_URL:?not set — add to 3-workloads/dev.env}"
+: "${MERN_DEMO_OAUTH2_CLIENT_ID:?not set — add to 3-workloads/dev.env}"
+: "${MERN_DEMO_OAUTH2_CLIENT_SECRET:?not set — add to 3-workloads/dev.env}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+EXPORTS_DIR=$(dirname "$KUBECONFIG")
+PYS_SH="$SCRIPT_DIR/../../scripts/pys.sh"
+
+APP_DB_NAME="bezkoder_db"
+APP_DB_USER="bezkoder"
+
+# ---------------------------------------------------------------------------
+# Namespace
+# ---------------------------------------------------------------------------
+echo "==> Namespace"
+kubectl get namespace mern-demo >/dev/null 2>&1 \
+  || kubectl create namespace mern-demo
+
+ISTIOD_READY=$(kubectl get deployment istiod -n istio-system \
+  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [ "${ISTIOD_READY:-0}" -gt 0 ]; then
+  echo "ASM detected — enabling sidecar injection for namespace 'mern-demo'"
+  kubectl label namespace mern-demo istio-injection=enabled --overwrite
+else
+  echo "ASM not detected — skipping sidecar injection label"
+fi
+
+# ---------------------------------------------------------------------------
+# App DB password — preserve across re-runs
+# ---------------------------------------------------------------------------
+echo "==> DDS app credentials"
+if kubectl get secret mern-dds -n mern-demo >/dev/null 2>&1; then
+  APP_DB_PASSWORD=$(kubectl get secret mern-dds -n mern-demo \
+    -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)
+  echo "  mern-dds secret exists — reusing stored password"
+else
+  APP_DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=\n' | head -c 32)
+  echo "  mern-dds secret not found — generated new password"
+fi
+
+# ---------------------------------------------------------------------------
+# DDS — create/update app database and user
+# ---------------------------------------------------------------------------
+echo "==> DDS init (database: $APP_DB_NAME, user: $APP_DB_USER)"
+if [ ! -x "$PYS_SH" ]; then
+  echo "ERROR: $PYS_SH not found or not executable" 1>&2
+  exit 1
+fi
+
+APP_DB_NAME="$APP_DB_NAME" \
+APP_DB_USER="$APP_DB_USER" \
+APP_DB_PASSWORD="$APP_DB_PASSWORD" \
+  "$PYS_SH" python3 "$SCRIPT_DIR/mern_dds_init.py"
+
+# ---------------------------------------------------------------------------
+# Kubernetes secret: mern-dds
+# ---------------------------------------------------------------------------
+echo "==> Secret: mern-dds"
+kubectl create secret generic mern-dds \
+  --namespace mern-demo \
+  --from-literal=DB_HOST="${DDS_HOST}" \
+  --from-literal=DB_PORT="${DDS_PORT}" \
+  --from-literal=DB_USER="${APP_DB_USER}" \
+  --from-literal=DB_PASSWORD="${APP_DB_PASSWORD}" \
+  --from-literal=DB_NAME="${APP_DB_NAME}" \
+  --from-literal=DB_SSL="true" \
+  --save-config \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# ---------------------------------------------------------------------------
+# TLS secret
+# ---------------------------------------------------------------------------
+echo "==> TLS secret"
+if kubectl get secret "${CERT_NAME}" --namespace mern-demo >/dev/null 2>&1; then
+  STORED=$(kubectl get secret "${CERT_NAME}" --namespace mern-demo \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d)
+  CURRENT=$(cat "${EXPORTS_DIR}/tls.crt")
+  if [ "$STORED" != "$CURRENT" ]; then
+    echo "  cert changed — replacing"
+    kubectl create secret tls "${CERT_NAME}" \
+      --cert="${EXPORTS_DIR}/tls.crt" \
+      --key="${EXPORTS_DIR}/tls.key" \
+      --namespace mern-demo \
+      --dry-run=client -o yaml | kubectl replace -f -
+  else
+    echo "  cert unchanged"
+  fi
+else
+  kubectl create secret tls "${CERT_NAME}" \
+    --cert="${EXPORTS_DIR}/tls.crt" \
+    --key="${EXPORTS_DIR}/tls.key" \
+    --namespace mern-demo
+fi
+
+# ---------------------------------------------------------------------------
+# Kubernetes secret: mern-oauth2-proxy — preserve cookie secret across re-runs
+# ---------------------------------------------------------------------------
+echo "==> Secret: mern-oauth2-proxy"
+if kubectl get secret mern-oauth2-proxy -n mern-demo >/dev/null 2>&1; then
+  COOKIE_SECRET=$(kubectl get secret mern-oauth2-proxy -n mern-demo \
+    -o jsonpath='{.data.cookie_secret}' | base64 -d)
+  echo "  mern-oauth2-proxy secret exists — reusing stored cookie secret"
+else
+  COOKIE_SECRET=$(openssl rand -base64 32 | tr -d '\n')
+  echo "  mern-oauth2-proxy secret not found — generated new cookie secret"
+fi
+
+kubectl create secret generic mern-oauth2-proxy \
+  --namespace mern-demo \
+  --from-literal=client_id="${MERN_DEMO_OAUTH2_CLIENT_ID}" \
+  --from-literal=client_secret="${MERN_DEMO_OAUTH2_CLIENT_SECRET}" \
+  --from-literal=cookie_secret="${COOKIE_SECRET}" \
+  --save-config \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# ---------------------------------------------------------------------------
+# Helm
+# ---------------------------------------------------------------------------
+echo "==> Helm"
+HELM_STATUS=$(helm status mern-demo --namespace mern-demo 2>/dev/null \
+  | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "  release in state '$HELM_STATUS' — uninstalling first"
+    helm uninstall mern-demo --namespace mern-demo
+    ;;
+esac
+
+IDP_HOST=$(echo "$MERN_DEMO_OAUTH2_IDP_URL" | sed 's|https\?://||' | cut -d/ -f1)
+
+helm upgrade --install mern-demo "$SCRIPT_DIR/../charts/mern-demo" \
+  --namespace mern-demo \
+  --set elbId="${ELB_ID}" \
+  --set host="${DEMO_HOST}" \
+  --set certId="${CERT_ID}" \
+  --set certName="${CERT_NAME}" \
+  --set api.clientOrigin="https://${DEMO_HOST}" \
+  --set api.ddsHost="${DDS_HOST}" \
+  --set api.ddsPort="${DDS_PORT}" \
+  --set proxy.oidcIssuerUrl="${MERN_DEMO_OAUTH2_IDP_URL}" \
+  --set proxy.idpHost="${IDP_HOST}"
+
+kubectl get all -n mern-demo
+kubectl get ingress -n mern-demo
+
+echo ""
+echo "MERN demo: https://${DEMO_HOST}/"
+echo ""

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: mern-demo
+spec:
+  replicas: {{ .Values.proxy.replicas }}
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+    spec:
+      containers:
+      - name: oauth2-proxy
+        image: {{ .Values.proxy.image | quote }}
+        args:
+        - --provider=oidc
+        - --oidc-issuer-url={{ .Values.proxy.oidcIssuerUrl }}
+        - --upstream=http://bezkoder-ui:80
+        - --redirect-url=https://{{ .Values.host }}/oauth2/callback
+        - --email-domain=*
+        - --http-address=0.0.0.0:4180
+        - --skip-provider-button=true
+        - --cookie-secure=true
+        - --scope=openid email profile
+        ports:
+        - containerPort: 4180
+        env:
+        - name: OAUTH2_PROXY_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: mern-oauth2-proxy
+              key: client_id
+        - name: OAUTH2_PROXY_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mern-oauth2-proxy
+              key: client_secret
+        - name: OAUTH2_PROXY_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mern-oauth2-proxy
+              key: cookie_secret

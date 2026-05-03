@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-https
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: cce
+    kubernetes.io/elb.id: {{ .Values.grafana.elbId | quote }}
+    kubernetes.io/elb.class: {{ .Values.grafana.elbClass | quote }}
+    kubernetes.io/elb.port: {{ .Values.grafana.httpsPort | quote }}
+    kubernetes.io/elb.cert-id: {{ .Values.grafana.certId | quote }}
+spec:
+  ingressClassName: cce
+  tls:
+  - hosts:
+    - {{ .Values.grafana.host | quote }}
+    secretName: {{ .Values.grafana.certName | quote }}
+  rules:
+  {{- if .Values.grafana.host }}
+  - host: {{ .Values.grafana.host | quote }}
+    http:
+  {{- else }}
+  - http:
+  {{- end }}
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-oss
+            port:
+              number: 3000

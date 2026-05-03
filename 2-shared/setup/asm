@@ -1,0 +1,90 @@
+#!/bin/sh
+# Installs the ASM (Istio) service mesh via upstream Helm charts.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   ../1-infra/krun ./setup/asm
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports all kube.env vars
+# before running this script.
+#
+# Override the Istio version:
+#   ISTIO_VERSION=1.23.0 ../1-infra/krun ./setup/asm
+#
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+: "${KUBECONFIG:?not set — run this script via krun}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ISTIO_VERSION=${ISTIO_VERSION:-1.22.3}
+
+echo "==> Installing ASM (Istio ${ISTIO_VERSION})"
+
+# ---------------------------------------------------------------------------
+# Helm repo
+# ---------------------------------------------------------------------------
+if ! helm repo list 2>/dev/null | grep -q '^istio[[:space:]]'; then
+  helm repo add istio https://istio-release.storage.googleapis.com/charts
+fi
+helm repo update istio
+
+# ---------------------------------------------------------------------------
+# istio-system namespace
+# ---------------------------------------------------------------------------
+kubectl get namespace istio-system >/dev/null 2>&1 \
+  || kubectl create namespace istio-system
+
+# ---------------------------------------------------------------------------
+# istio/base — CRDs and cluster-wide RBAC
+# ---------------------------------------------------------------------------
+HELM_STATUS=$(helm status istio-base --namespace istio-system 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'istio-base' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall istio-base --namespace istio-system
+    ;;
+esac
+
+helm upgrade --install istio-base istio/base \
+  --namespace istio-system \
+  --version "${ISTIO_VERSION}" \
+  --set defaultRevision=default
+
+# ---------------------------------------------------------------------------
+# istio/istiod — control plane
+# ---------------------------------------------------------------------------
+HELM_STATUS=$(helm status istiod --namespace istio-system 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'istiod' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall istiod --namespace istio-system
+    ;;
+esac
+
+helm upgrade --install istiod istio/istiod \
+  --namespace istio-system \
+  --version "${ISTIO_VERSION}" \
+  --set meshConfig.accessLogFile=/dev/stdout \
+  --set meshConfig.outboundTrafficPolicy.mode=REGISTRY_ONLY \
+  --wait --timeout 5m
+
+# ---------------------------------------------------------------------------
+# ASM config — mesh-wide mTLS policy + telemetry
+# ---------------------------------------------------------------------------
+HELM_STATUS=$(helm status asm-config --namespace istio-system 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'asm-config' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall asm-config --namespace istio-system
+    ;;
+esac
+
+helm upgrade --install asm-config "$SCRIPT_DIR/../charts/asm" \
+  --namespace istio-system
+
+echo ""
+kubectl get pods -n istio-system
+echo ""
+echo "ASM control plane ready. Verify with: ../1-infra/krun ./checks/asm"
+echo ""

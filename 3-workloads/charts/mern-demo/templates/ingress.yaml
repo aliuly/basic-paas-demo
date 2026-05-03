@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mern-demo
+  namespace: mern-demo
+  annotations:
+    kubernetes.io/ingress.class: cce
+    kubernetes.io/elb.id: {{ .Values.elbId | quote }}
+    kubernetes.io/elb.class: {{ .Values.elbClass | quote }}
+    kubernetes.io/elb.port: "443"
+    kubernetes.io/elb.cert-id: {{ .Values.certId | quote }}
+spec:
+  ingressClassName: cce
+  tls:
+  - hosts:
+    - {{ .Values.host | quote }}
+    secretName: {{ .Values.certName | quote }}
+  rules:
+  - host: {{ .Values.host | quote }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: oauth2-proxy
+            port:
+              number: 4180

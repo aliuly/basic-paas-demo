@@ -1,0 +1,5 @@
+apiVersion: v2
+name: asm
+description: ASM (Istio) mesh-wide configuration — mTLS policy and telemetry
+type: application
+version: 0.1.0

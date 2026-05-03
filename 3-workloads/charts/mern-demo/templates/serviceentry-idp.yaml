@@ -1,0 +1,16 @@
+{{- if .Capabilities.APIVersions.Has "networking.istio.io/v1beta1" }}
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: idp1-authentik
+  namespace: mern-demo
+spec:
+  hosts:
+  - {{ .Values.proxy.idpHost | quote }}
+  ports:
+  - number: 443
+    name: https
+    protocol: HTTPS
+  location: MESH_EXTERNAL
+  resolution: DNS
+{{- end }}

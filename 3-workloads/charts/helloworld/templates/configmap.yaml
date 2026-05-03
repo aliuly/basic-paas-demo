@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: helloworld-html
+  namespace: helloworld
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>Authorized Users Only</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+      </head>
+      <body>
+        <h1>Authorized Users Only</h1>
+    <hr />
+
+    <p>This is a private access system.</p>
+
+    <p>ACCESS ALLOWED TO AUTHORISED USERS ONLY.</p>
+
+    <p>Unauthorised use or misuse of these services may be a breach of the relevant computer misuse legislation and subject to legal and/or disciplinary action.</p>
+
+    <p>Activities on this system are logged and monitored.</p>
+
+    <p>If you are not authorised to use this system, terminate this session now.</p>
+
+    <hr/>
+
+
+    </body>
+    </html>

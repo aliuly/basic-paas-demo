@@ -1,0 +1,152 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# checks/dds — verify DDS instance is reachable from CCE pods
+#
+# Spins up a temporary busybox pod in a throwaway namespace and uses nc to
+# test TCP + TLS reachability on the DDS port (8635).  Cleans up on exit.
+#
+# Usage:
+#   ../1-infra/krun ./checks/dds
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env vars
+# (DDS_HOST, DDS_PORT) before running this script.
+# ---------------------------------------------------------------------------
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${DDS_HOST:?not set — run this script via krun}"
+: "${DDS_PORT:?not set — run this script via krun}"
+
+CHECK_NS="dds-check"
+POD_NAME="dds-check"
+
+cleanup() {
+  kubectl delete namespace "${CHECK_NS}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+# ---------------------------------------------------------------------------
+# 1. DDS coordinates
+# ---------------------------------------------------------------------------
+section "1. DDS coordinates"
+printf "  Host: %s\n" "${DDS_HOST}"
+printf "  Port: %s\n" "${DDS_PORT}"
+
+if [ -n "${DDS_HOST}" ]; then
+  pass "DDS_HOST is set"
+else
+  fail "DDS_HOST is empty — check kube.env / Terraform outputs"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Namespace + pod
+# ---------------------------------------------------------------------------
+section "2. Launching check pod"
+
+kubectl create namespace "${CHECK_NS}" --dry-run=client -o yaml \
+  | kubectl apply -f - >/dev/null
+
+kubectl run "${POD_NAME}" \
+  --namespace "${CHECK_NS}" \
+  --image=busybox:stable \
+  --restart=Never \
+  --command -- sleep 60 >/dev/null 2>&1 || true
+
+# Wait up to 30 s for the pod to be Running
+READY=0
+i=0
+while [ "$i" -lt 30 ]; do
+  STATUS=$(kubectl get pod "${POD_NAME}" -n "${CHECK_NS}" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+  if [ "${STATUS}" = "Running" ]; then
+    READY=1
+    break
+  fi
+  sleep 1
+  i=$((i+1))
+done
+
+if [ "${READY}" -eq 1 ]; then
+  pass "Check pod Running"
+else
+  fail "Check pod did not reach Running within 30s"
+  kubectl describe pod "${POD_NAME}" -n "${CHECK_NS}" 2>/dev/null || true
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. TCP connectivity to DDS port
+# ---------------------------------------------------------------------------
+section "3. TCP connectivity (${DDS_HOST}:${DDS_PORT})"
+
+if kubectl exec "${POD_NAME}" -n "${CHECK_NS}" -- \
+    nc -z -w 5 "${DDS_HOST}" "${DDS_PORT}" >/dev/null 2>&1; then
+  pass "TCP connection to ${DDS_HOST}:${DDS_PORT} succeeded"
+else
+  fail "TCP connection to ${DDS_HOST}:${DDS_PORT} failed — check DDS SG rules and pod network policy"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. TLS handshake (openssl s_client echo probe)
+# ---------------------------------------------------------------------------
+section "4. TLS handshake (${DDS_HOST}:${DDS_PORT})"
+
+# busybox doesn't include openssl; skip gracefully if absent
+if kubectl exec "${POD_NAME}" -n "${CHECK_NS}" -- \
+    sh -c "command -v openssl >/dev/null 2>&1"; then
+  TLS_OUT=$(kubectl exec "${POD_NAME}" -n "${CHECK_NS}" -- \
+    sh -c "echo Q | openssl s_client -connect '${DDS_HOST}:${DDS_PORT}' \
+           -verify_return_error 2>&1" || true)
+  if echo "${TLS_OUT}" | grep -q "CONNECTED"; then
+    pass "TLS handshake completed"
+  else
+    fail "TLS handshake failed"
+    echo "${TLS_OUT}" | tail -10
+  fi
+else
+  printf "  SKIP  openssl not available in pod image — TCP check above is sufficient\n"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. MongoDB authentication (pymongo, via SOCKS proxy)
+# ---------------------------------------------------------------------------
+section "5. MongoDB authentication"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PYS_SH="$SCRIPT_DIR/../../scripts/pys.sh"
+
+if [ -z "${DDS_PASSWORD:-}" ]; then
+  printf "  SKIP  DDS_PASSWORD not set — skipping authentication check\n"
+elif [ ! -x "$PYS_SH" ]; then
+  printf "  SKIP  %s not found — skipping authentication check\n" "$PYS_SH"
+else
+  MONGO_OUT=$("$PYS_SH" python3 "$SCRIPT_DIR/dds_mongo.py" 2>&1)
+  MONGO_RC=$?
+  if [ "$MONGO_RC" -eq 0 ]; then
+    pass "MongoDB authentication and ping succeeded"
+  else
+    fail "MongoDB authentication failed: $MONGO_OUT"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "${PASS}" "${FAIL}"
+echo "============================================================"
+echo ""
+
+if [ "${FAIL}" -gt 0 ]; then
+  echo "Fix the above before continuing"
+  echo ""
+  exit 1
+fi

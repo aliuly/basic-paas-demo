@@ -1,0 +1,88 @@
+#!/bin/sh
+# Deploys the helloworld static site via Helm.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   ./krun ./setup/helloworld
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports all kube.env vars
+# (ELB_ID, HELLO_HOST, CERT_ID, CERT_NAME, ...) before running this script.
+#
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+: "${ELB_ID:?not set — run this script via krun}"
+: "${HELLO_HOST:?not set — run this script via krun}"
+: "${CERT_ID:?not set — run this script via krun}"
+: "${CERT_NAME:?not set — run this script via krun}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+EXPORTS_DIR=$(dirname "$KUBECONFIG")
+
+kubectl get namespace helloworld >/dev/null 2>&1 \
+  || kubectl create namespace helloworld
+
+# Label namespace for Istio sidecar injection if ASM/istiod is available
+LABEL_ADDED=false
+ISTIOD_READY=$(kubectl get deployment istiod -n istio-system \
+  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [ "${ISTIOD_READY:-0}" -gt 0 ]; then
+  CURRENT_LABEL=$(kubectl get namespace helloworld \
+    -o jsonpath='{.metadata.labels.istio-injection}' 2>/dev/null || echo "")
+  echo "ASM detected — enabling sidecar injection for namespace 'helloworld'"
+  kubectl label namespace helloworld istio-injection=enabled --overwrite
+  [ "$CURRENT_LABEL" != "enabled" ] && LABEL_ADDED=true
+else
+  echo "ASM not detected — skipping sidecar injection label"
+fi
+
+# Create or replace the TLS secret if missing or cert has changed
+if kubectl get secret "${CERT_NAME}" --namespace helloworld >/dev/null 2>&1; then
+  STORED=$(kubectl get secret "${CERT_NAME}" --namespace helloworld \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d)
+  CURRENT=$(cat "${EXPORTS_DIR}/tls.crt")
+  if [ "$STORED" != "$CURRENT" ]; then
+    echo "TLS secret '${CERT_NAME}' cert has changed, replacing..."
+    kubectl create secret tls "${CERT_NAME}" \
+      --cert="${EXPORTS_DIR}/tls.crt" \
+      --key="${EXPORTS_DIR}/tls.key" \
+      --namespace helloworld \
+      --dry-run=client -o yaml | kubectl replace -f -
+  fi
+else
+  kubectl create secret tls "${CERT_NAME}" \
+    --cert="${EXPORTS_DIR}/tls.crt" \
+    --key="${EXPORTS_DIR}/tls.key" \
+    --namespace helloworld
+fi
+
+# Uninstall first if the release is in a failed/pending state
+HELM_STATUS=$(helm status helloworld --namespace helloworld 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'helloworld' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall helloworld --namespace helloworld
+    ;;
+esac
+
+helm upgrade --install helloworld "$SCRIPT_DIR/../charts/helloworld" \
+  --namespace helloworld \
+  --set elbId="${ELB_ID}" \
+  --set host="${HELLO_HOST}" \
+  --set certId="${CERT_ID}" \
+  --set certName="${CERT_NAME}"
+
+# If the namespace was just labelled for injection, existing pods need a restart
+# to pick up the sidecar (Helm no-ops don't restart running pods).
+if [ "$LABEL_ADDED" = true ]; then
+  echo "Restarting helloworld deployment to inject Istio sidecars..."
+  kubectl rollout restart deployment/helloworld -n helloworld
+  kubectl rollout status deployment/helloworld -n helloworld --timeout=2m
+fi
+
+kubectl get all -n helloworld
+kubectl get ingress -n helloworld
+
+echo ""
+echo "Helloworld: https://${HELLO_HOST}/"
+echo ""

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: helloworld
+description: Static helloworld page served over HTTPS
+type: application
+version: 0.1.0

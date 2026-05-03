@@ -1,0 +1,14 @@
+#!/bin/sh
+#
+# Clean-up only things that needs clean-up
+#
+tf=$(dirname "$0")/tf
+
+$tf destroy \
+    -target=module.vpn \
+    -target=module.bastion \
+    -target=module.ingress \
+    -target=module.cce \
+    #~ -target=module.dds \
+    #~ -target=module.lts
+

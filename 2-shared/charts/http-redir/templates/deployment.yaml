@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-redir
+  namespace: local-tools
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: http-redir
+  template:
+    metadata:
+      labels:
+        app: http-redir
+    spec:
+      containers:
+      - name: http-redir
+        image: {{ .Values.image | quote }}
+        ports:
+        - containerPort: 80

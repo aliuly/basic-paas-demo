@@ -1,0 +1,22 @@
+{{- if .Capabilities.APIVersions.Has "security.istio.io/v1beta1" }}
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: mern-demo-strict
+  namespace: mern-demo
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: oauth2-proxy-permissive
+  namespace: mern-demo
+spec:
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  mtls:
+    mode: PERMISSIVE
+{{- end }}

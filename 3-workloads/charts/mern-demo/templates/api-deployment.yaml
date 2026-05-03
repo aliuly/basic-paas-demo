@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bezkoder-api
+  namespace: mern-demo
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: bezkoder-api
+  template:
+    metadata:
+      labels:
+        app: bezkoder-api
+    spec:
+      imagePullSecrets:
+      - name: default-secret
+      containers:
+      - name: bezkoder-api
+        image: {{ .Values.api.image | quote }}
+        ports:
+        - containerPort: 8080
+        env:
+        - name: NODE_DOCKER_PORT
+          value: "8080"
+        - name: DB_SSL
+          value: "true"
+        - name: DB_NAME
+          value: {{ .Values.api.dbName | quote }}
+        - name: CLIENT_ORIGIN
+          value: {{ .Values.api.clientOrigin | quote }}
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: mern-dds
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: mern-dds
+              key: DB_PORT
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: mern-dds
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mern-dds
+              key: DB_PASSWORD

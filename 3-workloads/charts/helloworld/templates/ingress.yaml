@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: helloworld
+  namespace: helloworld
+  annotations:
+    kubernetes.io/ingress.class: cce
+    kubernetes.io/elb.id: {{ .Values.elbId | quote }}
+    kubernetes.io/elb.class: {{ .Values.elbClass | quote }}
+    kubernetes.io/elb.port: "443"
+    kubernetes.io/elb.cert-id: {{ .Values.certId | quote }}
+spec:
+  ingressClassName: cce
+  tls:
+  - hosts:
+    - {{ .Values.host | quote }}
+    secretName: {{ .Values.certName | quote }}
+  rules:
+  - host: {{ .Values.host | quote }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: helloworld
+            port:
+              number: 3000

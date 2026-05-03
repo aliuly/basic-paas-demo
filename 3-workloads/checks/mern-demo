@@ -1,0 +1,224 @@
+#!/bin/sh
+# Verifies the mern-demo deployment end-to-end.
+#
+# Usage:
+#   ./krun ./checks/mern-demo
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env + dev.env vars
+# before running this script.
+#
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+# No -e — run all checks and report all failures before exiting.
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${ELB_VIP:?not set — run this script via krun}"
+: "${DEMO_HOST:?not set — run this script via krun}"
+: "${MERN_DEMO_OAUTH2_IDP_URL:?not set — add to 3-workloads/dev.env}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PYS_SH="$SCRIPT_DIR/../../scripts/pys.sh"
+PROXY="${HTTPS_PROXY:-socks5://localhost:1080}"
+
+# ---------------------------------------------------------------------------
+# 1. Helm release
+# ---------------------------------------------------------------------------
+section "1. Helm release"
+
+HELM_STATUS=$(helm status mern-demo --namespace mern-demo 2>/dev/null \
+  | awk '/^STATUS:/{print $2}' || true)
+if [ "${HELM_STATUS}" = "deployed" ]; then
+  pass "Helm release 'mern-demo' is deployed"
+elif [ -n "${HELM_STATUS}" ]; then
+  fail "Helm release 'mern-demo' status: ${HELM_STATUS}"
+else
+  fail "Helm release 'mern-demo' not found — run setup/mern-demo first"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Pods
+# ---------------------------------------------------------------------------
+section "2. Pods"
+
+for app in bezkoder-api bezkoder-ui oauth2-proxy; do
+  READY=$(kubectl get deployment "$app" -n mern-demo \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  if [ "${READY:-0}" -ge 1 ]; then
+    pass "$app: ${READY} pod(s) ready"
+  else
+    fail "$app: no ready pods"
+    kubectl get pods -n mern-demo -l "app=$app" 2>/dev/null || true
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 3. Istio sidecars
+# ---------------------------------------------------------------------------
+section "3. Istio sidecars"
+
+ISTIOD_READY=$(kubectl get deployment istiod -n istio-system \
+  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+if [ "${ISTIOD_READY:-0}" -gt 0 ]; then
+  NS_LABEL=$(kubectl get namespace mern-demo \
+    -o jsonpath='{.metadata.labels.istio-injection}' 2>/dev/null || echo "")
+  if [ "$NS_LABEL" = "enabled" ]; then
+    pass "Namespace 'mern-demo' has istio-injection=enabled"
+  else
+    fail "Namespace 'mern-demo' missing istio-injection=enabled label"
+  fi
+  for app in bezkoder-api bezkoder-ui oauth2-proxy; do
+    SIDECAR=$(kubectl get pods -n mern-demo -l "app=$app" \
+      -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.name}{"\n"}{end}{end}' \
+      2>/dev/null | grep -c '^istio-proxy$' || true)
+    if [ "${SIDECAR:-0}" -ge 1 ]; then
+      pass "$app: istio-proxy sidecar present"
+    else
+      fail "$app: no istio-proxy sidecar found"
+    fi
+  done
+else
+  printf "  SKIP  ASM/istiod not running — sidecar checks skipped\n"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Ingress
+# ---------------------------------------------------------------------------
+section "4. Ingress"
+
+if kubectl get ingress mern-demo -n mern-demo >/dev/null 2>&1; then
+  pass "Ingress 'mern-demo' exists"
+  INGRESS_ELB=$(kubectl get ingress mern-demo -n mern-demo \
+    -o jsonpath='{.metadata.annotations.kubernetes\.io/elb\.id}' 2>/dev/null || true)
+  if [ -n "${INGRESS_ELB:-}" ]; then
+    pass "elb.id annotation: ${INGRESS_ELB}"
+  else
+    fail "kubernetes.io/elb.id annotation not set"
+  fi
+  INGRESS_IP=$(kubectl get ingress mern-demo -n mern-demo \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+  if [ -n "${INGRESS_IP:-}" ]; then
+    pass "ELB address in Ingress status: ${INGRESS_IP}"
+  else
+    fail "No ELB address in Ingress status — ELB listener may not be provisioned yet"
+  fi
+else
+  fail "Ingress 'mern-demo' not found — run setup/mern-demo first"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. TLS certificate
+# ---------------------------------------------------------------------------
+section "5. TLS certificate (${DEMO_HOST})"
+
+TLS_CODE=$(curl -sk --proxy "$PROXY" --max-time 5 \
+  --resolve "${DEMO_HOST}:443:${ELB_VIP}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${DEMO_HOST}/" 2>/dev/null)
+case "$TLS_CODE" in
+  000) fail "TLS handshake failed for ${DEMO_HOST}" ;;
+  *)   pass "TLS responding on 443 for ${DEMO_HOST} (HTTP ${TLS_CODE})" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 6. HTTP → HTTPS redirect
+# ---------------------------------------------------------------------------
+section "6. HTTP -> HTTPS redirect"
+
+REDIR_LOC=$(curl -s --proxy "$PROXY" --max-time 5 \
+  -H "Host: ${DEMO_HOST}" \
+  -o /dev/null -w "%{redirect_url}" \
+  "http://${ELB_VIP}/" 2>/dev/null || true)
+HTTP_CODE=$(curl -s --proxy "$PROXY" --max-time 5 \
+  -H "Host: ${DEMO_HOST}" \
+  -o /dev/null -w "%{http_code}" \
+  "http://${ELB_VIP}/" 2>/dev/null)
+case "$HTTP_CODE" in
+  301|302)
+    pass "HTTP ${HTTP_CODE} redirect to: ${REDIR_LOC}"
+    ;;
+  000) fail "No response on port 80" ;;
+  *)   fail "Expected redirect, got HTTP ${HTTP_CODE}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 7. oauth2-proxy — unauthenticated request redirects to authentik
+# ---------------------------------------------------------------------------
+section "7. oauth2-proxy redirect to IdP"
+
+IDP_HOST=$(echo "$MERN_DEMO_OAUTH2_IDP_URL" | sed 's|https\?://||' | cut -d/ -f1)
+
+LOCATION=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  --resolve "${DEMO_HOST}:443:${ELB_VIP}" \
+  -o /dev/null -w "%{redirect_url}" \
+  "https://${DEMO_HOST}/" 2>/dev/null || true)
+OAUTH_CODE=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  --resolve "${DEMO_HOST}:443:${ELB_VIP}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${DEMO_HOST}/" 2>/dev/null)
+
+case "$OAUTH_CODE" in
+  302|301)
+    if echo "${LOCATION:-}" | grep -q "$IDP_HOST"; then
+      pass "Redirects to authentik IdP: ${LOCATION}"
+    else
+      fail "Got redirect but not to IdP (Location: ${LOCATION:-none})"
+    fi
+    ;;
+  000) fail "No response from oauth2-proxy" ;;
+  200) fail "Expected redirect to IdP, got 200 — oauth2-proxy may not be protecting the route" ;;
+  *)   fail "Unexpected HTTP ${OAUTH_CODE} from oauth2-proxy" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 8. DDS app user connectivity
+# ---------------------------------------------------------------------------
+section "8. DDS app user (bezkoder)"
+
+if ! kubectl get secret mern-dds -n mern-demo >/dev/null 2>&1; then
+  fail "Secret 'mern-dds' not found in mern-demo — run setup/mern-demo first"
+elif [ ! -x "$PYS_SH" ]; then
+  printf "  SKIP  %s not found — skipping DDS app user check\n" "$PYS_SH"
+else
+  APP_DB_HOST=$(kubectl get secret mern-dds -n mern-demo \
+    -o jsonpath='{.data.DB_HOST}' | base64 -d)
+  APP_DB_PORT=$(kubectl get secret mern-dds -n mern-demo \
+    -o jsonpath='{.data.DB_PORT}' | base64 -d)
+  APP_DB_USER=$(kubectl get secret mern-dds -n mern-demo \
+    -o jsonpath='{.data.DB_USER}' | base64 -d)
+  APP_DB_PASSWORD=$(kubectl get secret mern-dds -n mern-demo \
+    -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)
+  APP_DB_NAME=$(kubectl get secret mern-dds -n mern-demo \
+    -o jsonpath='{.data.DB_NAME}' | base64 -d)
+
+  DDS_OUT=$(
+    DDS_HOST="$APP_DB_HOST" \
+    DDS_PORT="$APP_DB_PORT" \
+    DDS_PASSWORD="$APP_DB_PASSWORD" \
+    DDS_USER="$APP_DB_USER" \
+    DDS_AUTH_DB="$APP_DB_NAME" \
+      "$PYS_SH" python3 "$SCRIPT_DIR/../setup/mern_dds_check.py" 2>&1
+  ) && DDS_RC=$? || DDS_RC=$?
+
+  if [ "$DDS_RC" -eq 0 ]; then
+    pass "DDS app user '$APP_DB_USER' authenticated and ping succeeded"
+  else
+    fail "DDS app user check failed: $DDS_OUT"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "$PASS" "$FAIL"
+echo "============================================================"
+echo ""
+
+[ "$FAIL" -eq 0 ] || exit 1

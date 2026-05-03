@@ -1,0 +1,5 @@
+mtls:
+  mode: STRICT   # STRICT enforces mTLS for all in-mesh traffic; use PERMISSIVE during rollout
+
+telemetry:
+  accessLogging: true   # emit Envoy access logs to stdout

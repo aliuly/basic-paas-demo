@@ -1,0 +1,8 @@
+grafana:
+  elbId: ""           # required; set from ELB_ID in kube.env via setup script
+  host: ""            # required; set from GRAFANA_HOST in kube.env via setup script
+  certId: ""          # required; set from CERT_ID in kube.env via setup script
+  certName: ""        # required; set from CERT_NAME in kube.env via setup script
+  elbClass: performance
+  port: 80
+  httpsPort: 443

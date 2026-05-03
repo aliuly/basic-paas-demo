@@ -1,0 +1,135 @@
+#!/bin/sh
+# Verifies the Grafana Ingress is correctly wired and reachable through the ELB.
+#
+# Usage:
+#   ../1-infra/krun ./checks/grafana
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env vars
+# (ELB_VIP, GRAFANA_HOST) before running this script.
+#
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+# No -e — run all checks and report all failures before exiting.
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${ELB_VIP:?not set — run this script via krun}"
+: "${GRAFANA_HOST:?not set — run this script via krun}"
+
+# curl --proxy applies to HTTP and HTTPS regardless of URL scheme.
+# Using ELB_VIP directly (no DNS needed) with Host header for virtual hosting.
+PROXY="${HTTPS_PROXY:-socks5://localhost:1080}"
+
+# ---------------------------------------------------------------------------
+# 1. Ingress resource
+# ---------------------------------------------------------------------------
+section "1. Ingress resource"
+
+if kubectl get ingress grafana-https -n monitoring >/dev/null 2>&1; then
+  pass "Ingress 'grafana-https' exists in monitoring"
+  INGRESS_ELB=$(kubectl get ingress grafana-https -n monitoring \
+    -o jsonpath='{.metadata.annotations.kubernetes\.io/elb\.id}' 2>/dev/null || true)
+  if [ -n "${INGRESS_ELB:-}" ]; then
+    pass "elb.id annotation: ${INGRESS_ELB}"
+  else
+    fail "kubernetes.io/elb.id annotation not set"
+  fi
+else
+  fail "Ingress 'grafana-https' not found in monitoring — run setup/ingress first"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Ingress status
+# ---------------------------------------------------------------------------
+section "2. Ingress status"
+
+INGRESS_IP=$(kubectl get ingress grafana-https -n monitoring \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+if [ -n "${INGRESS_IP:-}" ]; then
+  pass "ELB address in Ingress status: ${INGRESS_IP}"
+else
+  fail "No ELB address in Ingress status — ELB listener may not be provisioned yet"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. HTTP → HTTPS redirect
+# ---------------------------------------------------------------------------
+section "3. HTTP → HTTPS redirect (${ELB_VIP}:80)"
+
+HTTP_CODE=$(curl -s --proxy "$PROXY" --max-time 5 \
+  -o /dev/null -w "%{http_code}" \
+  "http://${ELB_VIP}/" 2>/dev/null)
+case "$HTTP_CODE" in
+  301|302) pass "HTTP ${HTTP_CODE} redirect received" ;;
+  000)     fail "No response — check sg-ingress-elb allows TCP 80" ;;
+  *)       fail "Expected 301/302, got HTTP ${HTTP_CODE}" ;;
+esac
+
+LOCATION=$(curl -s --proxy "$PROXY" --max-time 5 \
+  -o /dev/null -w "%{redirect_url}" \
+  "http://${ELB_VIP}/" 2>/dev/null)
+case "$LOCATION" in
+  https://*) pass "Location: ${LOCATION}" ;;
+  "")        fail "No Location header in redirect response" ;;
+  *)         fail "Location does not start with https:// — got: ${LOCATION}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 4. TLS certificate valid for ${GRAFANA_HOST}
+# ---------------------------------------------------------------------------
+section "4. TLS certificate (${GRAFANA_HOST})"
+
+HTTP_CODE=$(curl -s --proxy "$PROXY" --max-time 5 \
+  --resolve "${GRAFANA_HOST}:443:${ELB_VIP}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${GRAFANA_HOST}/" 2>/dev/null || :)
+case "$HTTP_CODE" in
+  000) fail "TLS handshake failed — certificate may be invalid or untrusted for ${GRAFANA_HOST}" ;;
+  *)   pass "TLS certificate valid for ${GRAFANA_HOST} (HTTP ${HTTP_CODE})" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 5. HTTPS host-based routing
+# ---------------------------------------------------------------------------
+section "5. HTTPS host-based routing (Host: ${GRAFANA_HOST})"
+
+HTTP_CODE=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  -H "Host: ${GRAFANA_HOST}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${ELB_VIP}/" 2>/dev/null)
+case "$HTTP_CODE" in
+  200|302) pass "HTTPS ${HTTP_CODE} — Grafana responding" ;;
+  000)     fail "No response (connection refused or timed out)" ;;
+  *)       fail "Unexpected HTTPS ${HTTP_CODE}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 6. HTTPS Grafana health
+# ---------------------------------------------------------------------------
+section "6. HTTPS Grafana /api/health"
+
+HEALTH=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  -H "Host: ${GRAFANA_HOST}" \
+  "https://${ELB_VIP}/api/health" 2>/dev/null || true)
+DB_STATUS=$(echo "${HEALTH:-}" | jq -r '.database' 2>/dev/null || true)
+if [ "${DB_STATUS:-}" = "ok" ]; then
+  pass "database: ok"
+else
+  fail "unexpected response: ${HEALTH:-<empty>}"
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "$PASS" "$FAIL"
+echo "============================================================"
+echo ""
+
+[ "$FAIL" -eq 0 ] || exit 1

@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helloworld
+  namespace: helloworld
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: helloworld
+  template:
+    metadata:
+      labels:
+        app: helloworld
+    spec:
+      containers:
+      - name: helloworld
+        image: {{ .Values.image | quote }}
+        ports:
+        - containerPort: 3000
+        volumeMounts:
+        - name: html
+          mountPath: /home/static/index.html
+          subPath: index.html
+      volumes:
+      - name: html
+        configMap:
+          name: helloworld-html

@@ -1,0 +1,105 @@
+#!/bin/sh
+# Verifies the ASM (Istio) control plane is healthy and mesh config is applied.
+#
+# Usage:
+#   ../1-infra/krun ./checks/asm
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env vars
+# before running this script.
+#
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+# No -e — run all checks and report all failures before exiting.
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${KUBECONFIG:?not set — run this script via krun}"
+
+# ---------------------------------------------------------------------------
+# 1. Helm releases
+# ---------------------------------------------------------------------------
+section "1. Helm releases"
+
+for release in istio-base istiod asm-config; do
+  STATUS=$(helm status "$release" --namespace istio-system 2>/dev/null \
+    | awk '/^STATUS:/{print $2}' || true)
+  if [ "${STATUS:-}" = "deployed" ]; then
+    pass "Helm release '$release': deployed"
+  else
+    fail "Helm release '$release': ${STATUS:-not found}"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 2. istiod control plane
+# ---------------------------------------------------------------------------
+section "2. istiod deployment"
+
+ISTIOD_READY=$(kubectl get deploy istiod -n istio-system \
+  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+ISTIOD_DESIRED=$(kubectl get deploy istiod -n istio-system \
+  -o jsonpath='{.status.replicas}' 2>/dev/null || true)
+if [ "${ISTIOD_READY:-0}" -ge 1 ] 2>/dev/null && \
+   [ "${ISTIOD_READY:-}" = "${ISTIOD_DESIRED:-}" ]; then
+  pass "istiod: ${ISTIOD_READY}/${ISTIOD_DESIRED} replicas ready"
+else
+  fail "istiod not ready: ${ISTIOD_READY:-0}/${ISTIOD_DESIRED:-0} replicas"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Istio CRDs
+# ---------------------------------------------------------------------------
+section "3. Istio CRDs"
+
+for crd in \
+  virtualservices.networking.istio.io \
+  destinationrules.networking.istio.io \
+  gateways.networking.istio.io \
+  peerauthentications.security.istio.io \
+  telemetries.telemetry.istio.io; do
+  if kubectl get crd "$crd" >/dev/null 2>&1; then
+    pass "CRD: $crd"
+  else
+    fail "CRD missing: $crd"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 4. Mesh-wide mTLS policy
+# ---------------------------------------------------------------------------
+section "4. Mesh-wide mTLS (PeerAuthentication)"
+
+MTLS_MODE=$(kubectl get peerauthentication default -n istio-system \
+  -o jsonpath='{.spec.mtls.mode}' 2>/dev/null || true)
+if [ "${MTLS_MODE:-}" = "STRICT" ]; then
+  pass "PeerAuthentication 'default': mode=STRICT"
+else
+  fail "PeerAuthentication 'default': expected STRICT, got '${MTLS_MODE:-not found}'"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Sidecar injection webhook
+# ---------------------------------------------------------------------------
+section "5. Sidecar injection webhook"
+
+if kubectl get mutatingwebhookconfiguration istio-sidecar-injector >/dev/null 2>&1; then
+  pass "MutatingWebhookConfiguration 'istio-sidecar-injector' exists"
+else
+  fail "MutatingWebhookConfiguration 'istio-sidecar-injector' not found"
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "$PASS" "$FAIL"
+echo "============================================================"
+echo ""
+
+[ "$FAIL" -eq 0 ] || exit 1

@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: asm-console-https
+  namespace: istio-system
+  annotations:
+    kubernetes.io/ingress.class: cce
+    kubernetes.io/elb.id: {{ .Values.asmConsole.elbId | quote }}
+    kubernetes.io/elb.class: {{ .Values.asmConsole.elbClass | quote }}
+    kubernetes.io/elb.port: {{ .Values.asmConsole.httpsPort | quote }}
+    kubernetes.io/elb.cert-id: {{ .Values.asmConsole.certId | quote }}
+spec:
+  ingressClassName: cce
+  tls:
+  - hosts:
+    - {{ .Values.asmConsole.host | quote }}
+    secretName: {{ .Values.asmConsole.certName | quote }}
+  rules:
+  {{- if .Values.asmConsole.host }}
+  - host: {{ .Values.asmConsole.host | quote }}
+    http:
+  {{- else }}
+  - http:
+  {{- end }}
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: asm-console
+            port:
+              number: 20001

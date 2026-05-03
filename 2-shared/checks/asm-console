@@ -1,0 +1,126 @@
+#!/bin/sh
+# Verifies the ASM console (Kiali) is deployed and reachable through the ELB.
+#
+# Usage:
+#   ../1-infra/krun ./checks/asm-console
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports kube.env vars
+# (ELB_VIP, ASM_HOST) before running this script.
+#
+set -uf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+# No -e — run all checks and report all failures before exiting.
+
+PASS=0
+FAIL=0
+
+pass()    { PASS=$((PASS+1)); printf "  PASS  %s\n" "$*"; }
+fail()    { FAIL=$((FAIL+1)); printf "  FAIL  %s\n" "$*"; }
+section() { printf "\n==> %s\n" "$*"; }
+
+: "${ELB_VIP:?not set — run this script via krun}"
+: "${ASM_HOST:?not set — run this script via krun}"
+
+PROXY="${HTTPS_PROXY:-socks5://localhost:1080}"
+
+# ---------------------------------------------------------------------------
+# 1. Helm releases
+# ---------------------------------------------------------------------------
+section "1. Helm releases"
+
+for release in asm-console asm-console-ingress; do
+  STATUS=$(helm status "$release" --namespace istio-system 2>/dev/null \
+    | awk '/^STATUS:/{print $2}' || true)
+  if [ "${STATUS:-}" = "deployed" ]; then
+    pass "Helm release '$release': deployed"
+  else
+    fail "Helm release '$release': ${STATUS:-not found}"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 2. ASM console pod
+# ---------------------------------------------------------------------------
+section "2. asm-console pod"
+
+READY=$(kubectl get deploy asm-console -n istio-system \
+  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+DESIRED=$(kubectl get deploy asm-console -n istio-system \
+  -o jsonpath='{.status.replicas}' 2>/dev/null || true)
+if [ "${READY:-0}" -ge 1 ] 2>/dev/null && [ "${READY:-}" = "${DESIRED:-}" ]; then
+  pass "asm-console: ${READY}/${DESIRED} replicas ready"
+else
+  fail "asm-console not ready: ${READY:-0}/${DESIRED:-0} replicas"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Ingress resource
+# ---------------------------------------------------------------------------
+section "3. Ingress resource"
+
+if kubectl get ingress asm-console-https -n istio-system >/dev/null 2>&1; then
+  pass "Ingress 'asm-console-https' exists in istio-system"
+  INGRESS_ELB=$(kubectl get ingress asm-console-https -n istio-system \
+    -o jsonpath='{.metadata.annotations.kubernetes\.io/elb\.id}' 2>/dev/null || true)
+  if [ -n "${INGRESS_ELB:-}" ]; then
+    pass "elb.id annotation: ${INGRESS_ELB}"
+  else
+    fail "kubernetes.io/elb.id annotation not set"
+  fi
+else
+  fail "Ingress 'asm-console-https' not found — run setup/asm-console first"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Ingress status
+# ---------------------------------------------------------------------------
+section "4. Ingress status"
+
+INGRESS_IP=$(kubectl get ingress asm-console-https -n istio-system \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+if [ -n "${INGRESS_IP:-}" ]; then
+  pass "ELB address in Ingress status: ${INGRESS_IP}"
+else
+  fail "No ELB address in Ingress status — ELB listener may not be provisioned yet"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. HTTPS host-based routing
+# ---------------------------------------------------------------------------
+section "5. HTTPS host-based routing (Host: ${ASM_HOST})"
+
+HTTP_CODE=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  -H "Host: ${ASM_HOST}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${ELB_VIP}/" 2>/dev/null)
+case "$HTTP_CODE" in
+  200|302) pass "HTTPS ${HTTP_CODE} — ASM console responding" ;;
+  000)     fail "No response (connection refused or timed out)" ;;
+  *)       fail "Unexpected HTTPS ${HTTP_CODE}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 6. Kiali health
+# ---------------------------------------------------------------------------
+section "6. Kiali /kiali/healthz (Host: ${ASM_HOST})"
+
+HTTP_CODE=$(curl -sk --proxy "$PROXY" --max-time 10 \
+  -H "Host: ${ASM_HOST}" \
+  -o /dev/null -w "%{http_code}" \
+  "https://${ELB_VIP}/kiali/healthz" 2>/dev/null)
+case "$HTTP_CODE" in
+  200) pass "Kiali /kiali/healthz: 200 OK" ;;
+  000) fail "No response on /kiali/healthz" ;;
+  *)   fail "Unexpected /kiali/healthz response: HTTP ${HTTP_CODE}" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "============================================================"
+printf   "  Results: %d passed, %d failed\n" "$PASS" "$FAIL"
+echo "============================================================"
+echo ""
+
+[ "$FAIL" -eq 0 ] || exit 1

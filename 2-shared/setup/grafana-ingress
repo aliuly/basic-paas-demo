@@ -1,0 +1,64 @@
+#!/bin/sh
+# Installs grafana Ingress rules via Helm.
+# Idempotent — safe to run multiple times.
+#
+# Usage:
+#   ../1-infra/krun ./setup/ingress
+#
+# krun sets KUBECONFIG, HTTPS_PROXY, and exports all kube.env vars
+# (ELB_ID, ELB_VIP, GRAFANA_HOST, ...) before running this script.
+#
+set -euf
+( set -o pipefail 2>/dev/null ) && set -o pipefail
+
+: "${ELB_ID:?not set — run this script via krun}"
+: "${GRAFANA_HOST:?not set — run this script via krun}"
+: "${CERT_ID:?not set — run this script via krun}"
+: "${CERT_NAME:?not set — run this script via krun}"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+EXPORTS_DIR=$(dirname "$KUBECONFIG")
+
+# Create or replace the TLS secret if missing or cert has changed
+if kubectl get secret "${CERT_NAME}" --namespace monitoring >/dev/null 2>&1; then
+  STORED=$(kubectl get secret "${CERT_NAME}" --namespace monitoring \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d)
+  CURRENT=$(cat "${EXPORTS_DIR}/tls.crt")
+  if [ "$STORED" != "$CURRENT" ]; then
+    echo "TLS secret '${CERT_NAME}' cert has changed, replacing..."
+    kubectl create secret tls "${CERT_NAME}" \
+      --cert="${EXPORTS_DIR}/tls.crt" \
+      --key="${EXPORTS_DIR}/tls.key" \
+      --namespace monitoring \
+      --dry-run=client -o yaml | kubectl replace -f -
+  fi
+else
+  kubectl create secret tls "${CERT_NAME}" \
+    --cert="${EXPORTS_DIR}/tls.crt" \
+    --key="${EXPORTS_DIR}/tls.key" \
+    --namespace monitoring
+fi
+
+# Uninstall first if the release is in a failed/pending state
+HELM_STATUS=$(helm status grafana --namespace monitoring 2>/dev/null | awk '/^STATUS:/{print $2}' || :)
+case "$HELM_STATUS" in
+  failed|pending-upgrade|pending-install|pending-rollback)
+    echo "Helm release 'grafana' is in state '$HELM_STATUS', uninstalling first..."
+    helm uninstall grafana --namespace monitoring
+    ;;
+esac
+
+helm upgrade --install grafana "$SCRIPT_DIR/../charts/grafana" \
+  --namespace monitoring \
+  --set grafana.elbId="${ELB_ID}" \
+  --set grafana.host="${GRAFANA_HOST}" \
+  --set grafana.certId="${CERT_ID}" \
+  --set grafana.certName="${CERT_NAME}" \
+
+kubectl get ingress -n monitoring
+
+
+echo ""
+echo "Grafana: https://${GRAFANA_HOST}/"
+echo "Default credentials: admin / admin"
+echo ""

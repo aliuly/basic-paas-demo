@@ -1,0 +1,23 @@
+elbId: ""       # required; set from ELB_ID in kube.env via setup script
+elbClass: performance
+host: ""        # required; set from DEMO_HOST in kube.env via setup script
+certId: ""      # required; set from CERT_ID in kube.env via setup script
+certName: ""    # required; set from CERT_NAME in kube.env via setup script
+
+api:
+  image: "swr.eu-de.otc.t-systems.com/golden/mern-api:latest"
+  replicas: 1
+  dbName: bezkoder_db
+  clientOrigin: ""   # required; set to https://$DEMO_HOST via setup script
+  ddsHost: ""        # required; set from DDS_HOST in kube.env via setup script
+  ddsPort: 8635      # set from DDS_PORT in kube.env via setup script
+
+ui:
+  image: "swr.eu-de.otc.t-systems.com/golden/mern-ui:latest"
+  replicas: 1
+
+proxy:
+  image: "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
+  replicas: 1
+  oidcIssuerUrl: ""   # required; set from MERN_DEMO_OAUTH2_IDP_URL in dev.env via setup script
+  idpHost: ""         # required; hostname extracted from oidcIssuerUrl — used for Istio ServiceEntry

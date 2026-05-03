@@ -1,0 +1,20 @@
+{{- if .Capabilities.APIVersions.Has "networking.istio.io/v1beta1" }}
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: dds-mern
+  namespace: mern-demo
+spec:
+  hosts:
+  - dds-mern.external
+  addresses:
+  - {{ .Values.api.ddsHost | quote }}
+  ports:
+  - number: {{ .Values.api.ddsPort | int }}
+    name: tcp-mongodb
+    protocol: TCP
+  location: MESH_EXTERNAL
+  resolution: STATIC
+  endpoints:
+  - address: {{ .Values.api.ddsHost | quote }}
+{{- end }}
