@@ -27,6 +27,10 @@ This project assumes private communication to clients systems via
 a VPN.  The code here will create a VPC and wire up the VPN, but the
 peer VPN gateway needs to exist already.
 
+Also, make sure that you visit the Web Console page for Cloud
+Container Engine (CCE), so that the agencies needed to deploy
+Clusters are correctly set-up.
+
 You will need the following credentials:
 
 * Tenant administrator - to deploy the bulk of the code.  I would

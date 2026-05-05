@@ -85,3 +85,71 @@ The setup script connects to DDS as `rwuser` via pymongo + SOCKS proxy and idemp
 Values set at deploy time: `elbId`, `host`, `certId`, `certName`, `api.clientOrigin`,
 `api.ddsHost`, `api.ddsPort`, `proxy.oidcIssuerUrl`, `proxy.idpHost`.
 
+# Configuring oauth2-proxy with Authentik as Identity Provider
+
+**App URL:** `https://mern-demo2.<dns_zone>/`
+**IdP URL:** `https://<authentik_dns_name>/`
+
+## 1. Create the OIDC Provider in Authentik
+
+In the Authentik admin UI at `https://<authentik_dns_name>/`:
+
+1. **Providers → Create → OAuth2/OpenID Provider**
+   - Name: `mern-demo` (or anything)
+   - Client type: **Confidential**
+   - Client ID: auto-generated (copy it)
+   - Client Secret: auto-generated (copy it)
+   - Redirect URIs: `https://mern-demo2.<dns_zone>/oauth2/callback`
+   - Signing Key: pick your default RSA key
+   - Scopes: `openid`, `email`, `profile`
+
+2. **Applications → Create**
+   - Link it to the provider you just created
+   - Note the **slug** you give the application (e.g. `mern-demo`)
+
+3. The OIDC issuer URL will be:
+   ```
+   https://<authentik_dns_name>/application/o/<your-app-slug>/
+   ```
+   You can verify it by fetching:
+   ```
+   https://<authentik_dns_name>/application/o/<slug>/.well-known/openid-configuration
+   ```
+
+## 2. Fix: email_verified in the ID token
+
+oauth2-proxy rejects logins where the ID token contains `email_verified: false`. Authentik's
+default admin account (`root@example.com`) and some user sources return unverified emails.
+
+`proxy-deployment.yaml` includes `--insecure-oidc-allow-unverified-email=true`.
+This is acceptable for a demo but means the proxy will pass through any user regardless
+of whether the IdP has verified their email.
+
+## 3. Set credentials in `3-workloads/dev.env`
+
+Add (or update) these three variables in the gitignored `3-workloads/dev.env`:
+
+```sh
+MERN_DEMO_OAUTH2_IDP_URL=https://<authentik_dns_name>/application/o/<your-app-slug>/
+MERN_DEMO_OAUTH2_CLIENT_ID=<client-id-from-authentik>
+MERN_DEMO_OAUTH2_CLIENT_SECRET=<client-secret-from-authentik>
+```
+
+# Traffic flow and mTLS
+
+oauth2-proxy listens on plain HTTP (`--http-address=0.0.0.0:4180`). This is correct — the
+Istio sidecar handles mTLS transparently between pods. The application never sees TLS.
+
+```
+Browser
+  → HTTPS → ELB (TLS termination)
+  → HTTP  → Ingress controller
+  → mTLS  → oauth2-proxy sidecar   (Istio)
+  → HTTP  → oauth2-proxy app       (localhost inside pod)
+  → mTLS  → bezkoder-ui sidecar    (Istio)
+  → HTTP  → bezkoder-ui app
+```
+
+The `PeerAuthentication` in the chart sets the namespace to `STRICT` mTLS, with oauth2-proxy
+itself as `PERMISSIVE` so the ingress controller (which has no sidecar) can reach it.
+Using `--https-address` instead would double-encrypt and conflict with Istio.

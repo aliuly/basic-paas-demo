@@ -26,6 +26,7 @@ spec:
         - --skip-provider-button=true
         - --cookie-secure=true
         - --scope=openid email profile
+        - --insecure-oidc-allow-unverified-email=true
         ports:
         - containerPort: 4180
         env:
