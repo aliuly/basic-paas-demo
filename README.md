@@ -21,7 +21,8 @@ Folders
 
 # Pre-requisistes
 
-To deploy this project you need a [T Cloud Public](https://public.t-cloud.com/en)
+To deploy this project you need a
+[T Cloud Public](https://www.t-cloud-public.com/en)
 tenant.  Normally I would create a specific project to host this tenant.
 This project assumes private communication to clients systems via
 a VPN.  The code here will create a VPC and wire up the VPN, but the
