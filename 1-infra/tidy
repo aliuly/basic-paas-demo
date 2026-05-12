@@ -9,6 +9,6 @@ $tf destroy \
     -target=module.bastion \
     -target=module.ingress \
     -target=module.cce \
-    #~ -target=module.dds \
+    -target=module.dds \
     #~ -target=module.lts
 
